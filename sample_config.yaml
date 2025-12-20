@@ -1,0 +1,181 @@
+global_config:
+  model_filename: "vocals_mel_band_roformer.ckpt"
+  model_file_dir: "./models_cache"
+  output_dir: "./stems"
+  output_format: "wav"
+  sample_rate: 48000
+  use_autocast: true
+stages:
+  - name: "vocals_primary"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "vocals"
+    models:
+      - name: "Voc-MBR"
+        model_file: "vocals_mel_band_roformer.ckpt"
+        output_single_stem: null
+        invert_using_spec: true
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+      - name: "MDX23C-InstVoc-HQ2"
+        model_file: "MDX23C-8KFFT-InstVoc_HQ_2.ckpt"
+        output_single_stem: null
+        invert_using_spec: true
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+      - name: "MBR-Kim-FT-unwa"
+        model_file: "mel_band_roformer_kim_ft_unwa.ckpt"
+        output_single_stem: null
+        invert_using_spec: true
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+      - name: "MBR-big-beta6x"
+        model_file: "melband_roformer_big_beta6x.ckpt"
+        output_single_stem: null
+        invert_using_spec: true
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+      - name: "BSR-Voc-Revive-v3e"
+        model_file: "bs_roformer_vocals_revive_v3e_unwa.ckpt"
+        output_single_stem: null
+        invert_using_spec: true
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+      - name: "BSR-Voc-Ressurection"
+        model_file: "bs_roformer_vocals_resurrection_unwa.ckpt"
+        output_single_stem: null
+        invert_using_spec: true
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+      - name: "MBR-Voc-fv6_gabox"  
+        model_file: "mel_band_roformer_vocals_fv6_gabox.ckpt"
+        output_single_stem: null
+        invert_using_spec: true
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+
+  - name: "instrumental_primary"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "instrumental"
+    models:
+      - name: "UVR-Inst_HQ_5"
+        model_file: "UVR-MDX-NET-Inst_HQ_5.onnx"
+        output_single_stem: "Instrumental"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Instrumental: "Instrumental"
+      - name: "BSR-Inst-Ressurection"
+        model_file: "bs_roformer_instrumental_resurrection_unwa.ckpt"
+        output_single_stem: "other"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          other: "Instrumental"
+      - name: "Kim-Inst"
+        model_file: "Kim_Inst.onnx"
+        output_single_stem: "Instrumental"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Instrumental: "Instrumental"
+      - name: "MDX-NET-Inst-82"
+        model_file: "UVR-MDX-NET_Inst_82_beta.onnx"
+        output_single_stem: "Instrumental"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Instrumental: "Instrumental"
+
+  - name: "vocals_dry"
+    type: "separate"
+    input_dir: "vocals"
+    output_dir: "vocals_dry"
+    models:
+      - name: "MDX23C-De-Reverb-AJ"
+        model_file: "MDX23C-De-Reverb-aufr33-jarredou.ckpt"
+        output_single_stem: "dry"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          dry: "Vocals (Dry)"
+      - name: "UVR-De-Reverb-AJ"
+        model_file: "UVR-De-Reverb-aufr33-jarredou.pth"
+        output_single_stem: "dry"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          dry: "Vocals (Dry)"    
+      - name: "De-Reverb-HQ-FoxJoy"
+        model_file: "Reverb_HQ_By_FoxJoy.onnx"
+        output_single_stem: "No Reverb"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          "No Reverb": "Vocals (Dry)"
+
+  - name: "vocals_ensemble_dry"
+    type: "ensemble"
+    mode: "vocals"
+    input_dir: "vocals_dry"
+    output_dir: "ensemble"
+    output_name: "vocals_ensemble_dry.wav"
+    top_k: 5
+
+  - name: "vocals_ensemble"
+    type: "ensemble"
+    mode: "vocals"
+    input_dir: "vocals"
+    output_dir: "ensemble"
+    output_name: "vocals_ensemble.wav"
+    top_k: 5        
