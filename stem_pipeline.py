@@ -54,20 +54,43 @@ def ensure_dir(p: Path) -> Path:
     return p
 
 
+def _clean_dict(d: dict | None) -> dict | None:
+    """Remove keys with None values, recursively for dicts/lists."""
+    if d is None:
+        return None
+    if not isinstance(d, dict):
+        return d
+    cleaned = {}
+    for k, v in d.items():
+        if v is None:
+            continue
+        if isinstance(v, dict):
+            v = _clean_dict(v)
+        elif isinstance(v, list):
+            v = [_clean_dict(x) if isinstance(x, dict) else x for x in v]
+        cleaned[k] = v
+    return cleaned
+
+
 def config_separator(model_cfg: dict, global_cfg: dict, stage_cfg: dict, model_dir: Path, out_dir: Path) -> Separator:
     sep_kwargs: Dict[str, Any] = {}
     # Global defaults
     for key in ["model_file_dir", "output_format", "sample_rate", "use_autocast"]:
-        if key in global_cfg:
+        if key in global_cfg and global_cfg[key] is not None:
             sep_kwargs[key] = global_cfg[key]
     # Stage overrides
     for key in ["output_single_stem", "invert_using_spec", "mdx_params", "vr_params", "demucs_params", "mdxc_params"]:
-        if key in stage_cfg:
+        if key in stage_cfg and stage_cfg[key] is not None:
             sep_kwargs[key] = stage_cfg[key]
     # Model overrides
     for key in ["output_single_stem", "invert_using_spec", "mdx_params", "vr_params", "demucs_params", "mdxc_params"]:
-        if key in model_cfg:
+        if key in model_cfg and model_cfg[key] is not None:
             sep_kwargs[key] = model_cfg[key]
+
+    # Clean nested param dicts to strip None values
+    for nested in ["mdx_params", "vr_params", "demucs_params", "mdxc_params"]:
+        if nested in sep_kwargs:
+            sep_kwargs[nested] = _clean_dict(sep_kwargs[nested])
 
     sep_kwargs["model_file_dir"] = str(model_dir)
     sep_kwargs["output_dir"] = str(out_dir)
@@ -123,12 +146,21 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
         model_out_dir = ensure_dir(work_root / friendly)
         sep = config_separator(model_cfg, global_cfg, stage_cfg, model_dir, model_out_dir)
         for audio_file in inputs:
-            generated = sep.separate(str(audio_file))
+            try:
+                generated = sep.separate(str(audio_file))
+            except Exception as exc:
+                print(f"[error] Separation failed for model '{friendly}' on '{audio_file.name}': {exc}")
+                generated = []
             generated_paths = [Path(p) if Path(p).is_absolute() else model_out_dir / p for p in generated]
+            if not generated_paths:
+                print(f"[warn] No outputs generated for model '{friendly}' on '{audio_file.name}'.")
             renamed = rename_outputs(generated_paths, out_dir, audio_file.stem, friendly, output_names)
             all_outputs.extend(renamed)
 
     if work_root.exists():
+        leftovers = [p for p in work_root.rglob("*") if p.is_file()]
+        if leftovers:
+            print(f"[error] Work folder not empty, removing leftover files: {[str(p) for p in leftovers]}")
         shutil.rmtree(work_root, ignore_errors=True)
     return all_outputs
 

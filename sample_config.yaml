@@ -14,13 +14,9 @@ stages:
       - name: "Voc-MBR"
         model_file: "vocals_mel_band_roformer.ckpt"        
         invert_using_spec: true
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
         output_names: 
           Vocals: "Vocals"
-          Other: "Instrumental"
+          other: "Instrumental"
       - name: "MDX23C-InstVoc-HQ2"
         model_file: "MDX23C-8KFFT-InstVoc_HQ_2.ckpt"        
         invert_using_spec: true
@@ -34,50 +30,30 @@ stages:
       - name: "MBR-Kim-FT-unwa"
         model_file: "mel_band_roformer_kim_ft_unwa.ckpt"        
         invert_using_spec: true
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
         output_names: 
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "MBR-big-beta6x"
         model_file: "melband_roformer_big_beta6x.ckpt"        
         invert_using_spec: true
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
         output_names: 
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "BSR-Voc-Revive-v3e"
         model_file: "bs_roformer_vocals_revive_v3e_unwa.ckpt"        
         invert_using_spec: true
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
         output_names: 
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "BSR-Voc-Ressurection"
         model_file: "bs_roformer_vocals_resurrection_unwa.ckpt"
         invert_using_spec: true
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
         output_names: 
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "MBR-Voc-fv6_gabox"  
         model_file: "mel_band_roformer_vocals_fv6_gabox.ckpt"        
         invert_using_spec: true
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
         output_names: 
           Vocals: "Vocals"
           Other: "Instrumental"
@@ -90,37 +66,24 @@ stages:
       - name: "UVR-Inst_HQ_5"
         model_file: "UVR-MDX-NET-Inst_HQ_5.onnx"
         output_single_stem: "Instrumental"
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
+        mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.75, "batch_size": 1, "enable_denoise": False}
         output_names: 
           Instrumental: "Instrumental"
       - name: "BSR-Inst-Ressurection"
         model_file: "bs_roformer_instrumental_resurrection_unwa.ckpt"
         output_single_stem: "other"
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
+        mdxc_params: {"segment_size": 512, "override_model_segment_size": True, "batch_size": 1, "overlap": 24, "pitch_shift": 0}
         output_names: 
           other: "Instrumental"
       - name: "Kim-Inst"
         model_file: "Kim_Inst.onnx"
-        output_single_stem: "Instrumental"
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
+        output_single_stem: "instrumental"
         output_names: 
-          Instrumental: "Instrumental"
+          instrumental: "Instrumental"
       - name: "MDX-NET-Inst-82"
         model_file: "UVR-MDX-NET_Inst_82_beta.onnx"
         output_single_stem: "Instrumental"
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
+        mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.75, "batch_size": 1, "enable_denoise": False}
         output_names: 
           Instrumental: "Instrumental"
 
@@ -132,27 +95,15 @@ stages:
       - name: "Kuilab-B-Drums"
         model_file: "kuielab_b_drums.onnx"
         output_single_stem: "Drums"
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
         output_names: 
           Drums: "Drums"
       - name: "Kuilab-B-Bass"
         model_file: "kuielab_b_bass.onnx"
         output_single_stem: "Bass"
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
         output_names: 
           Bass: "Bass"
       - name: "BS-Roformer-SW"
         model_file: "BS-Roformer-SW.ckpt"
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
         output_names: 
           "vocals": "Vocals"
           "drums": "Drums"
@@ -162,10 +113,7 @@ stages:
           "piano": "Piano"   
       - name: "htdemucs_6s"
         model_file: "htdemucs_6s.yaml"
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
+        demucs_params: {"segment_size": 256, "shifts": 4, "overlap": 0.75, "segments_enabled": True}
         output_names: 
           "vocals": "Vocals"
           "drums": "Drums"
@@ -175,15 +123,32 @@ stages:
           "piano": "Piano"
       - name: "htdemucs_ft"
         model_file: "htdemucs_ft.yaml"
-        mdx_params: {}
-        vr_params: {}
-        demucs_params: {}
-        mdxc_params: {}
+        demucs_params: {"segment_size": 256, "shifts": 4, "overlap": 0.75, "segments_enabled": True}
         output_names: 
           "vocals": "Vocals"
           "drums": "Drums"
           "bass": "Bass"
           "other": "Other"
+
+  - name: "drums_multistem"
+    type: "separate"
+    input_dir: "instrumental_multistem"
+    output_dir: "instrumental_multistem_drums"
+    filename_filter: "(Drums)"
+    models:
+      - name: "MDX23C-DrumSep-AJ"
+        model_file: "MDX23C-DrumSep-aufr33-jarredou.ckpt"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          "kick": "Kick"
+          "snare": "Snare"
+          "toms": "Toms"
+          "hh": "Hihat"
+          "ride": "Ride"
+          "crash": "Crash"
 
   - name: "vocals_dry"
     type: "separate"
@@ -252,4 +217,40 @@ stages:
     filename_filter: "(Instrumental)"
     output_dir: "ensemble"
     output_name: "instrumental_ensemble.wav"
+    top_k: 3
+
+  - name: "bass_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Bass)"
+    output_dir: "ensemble"
+    output_name: "instrumental_ensemble_bass.wav"
     top_k: 5
+
+  - name: "drums_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Drums)"
+    output_dir: "ensemble"
+    output_name: "instrumental_ensemble_drums.wav"
+    top_k: 5
+
+  - name: "guitar_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Guitar)"
+    output_dir: "ensemble"
+    output_name: "instrumental_ensemble_guitar.wav"
+    top_k: 5
+
+  - name: "piano_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Piano)"
+    output_dir: "ensemble"
+    output_name: "instrumental_ensemble_piano.wav"
+    top_k: 5      
