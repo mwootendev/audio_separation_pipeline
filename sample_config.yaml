@@ -12,8 +12,7 @@ stages:
     output_dir: "vocals"
     models:
       - name: "Voc-MBR"
-        model_file: "vocals_mel_band_roformer.ckpt"
-        output_single_stem: null
+        model_file: "vocals_mel_band_roformer.ckpt"        
         invert_using_spec: true
         mdx_params: {}
         vr_params: {}
@@ -23,8 +22,7 @@ stages:
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "MDX23C-InstVoc-HQ2"
-        model_file: "MDX23C-8KFFT-InstVoc_HQ_2.ckpt"
-        output_single_stem: null
+        model_file: "MDX23C-8KFFT-InstVoc_HQ_2.ckpt"        
         invert_using_spec: true
         mdx_params: {}
         vr_params: {}
@@ -34,8 +32,7 @@ stages:
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "MBR-Kim-FT-unwa"
-        model_file: "mel_band_roformer_kim_ft_unwa.ckpt"
-        output_single_stem: null
+        model_file: "mel_band_roformer_kim_ft_unwa.ckpt"        
         invert_using_spec: true
         mdx_params: {}
         vr_params: {}
@@ -45,8 +42,7 @@ stages:
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "MBR-big-beta6x"
-        model_file: "melband_roformer_big_beta6x.ckpt"
-        output_single_stem: null
+        model_file: "melband_roformer_big_beta6x.ckpt"        
         invert_using_spec: true
         mdx_params: {}
         vr_params: {}
@@ -56,8 +52,7 @@ stages:
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "BSR-Voc-Revive-v3e"
-        model_file: "bs_roformer_vocals_revive_v3e_unwa.ckpt"
-        output_single_stem: null
+        model_file: "bs_roformer_vocals_revive_v3e_unwa.ckpt"        
         invert_using_spec: true
         mdx_params: {}
         vr_params: {}
@@ -68,7 +63,6 @@ stages:
           Other: "Instrumental"
       - name: "BSR-Voc-Ressurection"
         model_file: "bs_roformer_vocals_resurrection_unwa.ckpt"
-        output_single_stem: null
         invert_using_spec: true
         mdx_params: {}
         vr_params: {}
@@ -78,8 +72,7 @@ stages:
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "MBR-Voc-fv6_gabox"  
-        model_file: "mel_band_roformer_vocals_fv6_gabox.ckpt"
-        output_single_stem: null
+        model_file: "mel_band_roformer_vocals_fv6_gabox.ckpt"        
         invert_using_spec: true
         mdx_params: {}
         vr_params: {}
@@ -131,10 +124,72 @@ stages:
         output_names: 
           Instrumental: "Instrumental"
 
+  - name: "instrumental_multistem"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "instrumental_multistem"
+    models:
+      - name: "Kuilab-B-Drums"
+        model_file: "kuielab_b_drums.onnx"
+        output_single_stem: "Drums"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Drums: "Drums"
+      - name: "Kuilab-B-Bass"
+        model_file: "kuielab_b_bass.onnx"
+        output_single_stem: "Bass"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          Bass: "Bass"
+      - name: "BS-Roformer-SW"
+        model_file: "BS-Roformer-SW.ckpt"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          "vocals": "Vocals"
+          "drums": "Drums"
+          "bass": "Bass"
+          "other": "Other"
+          "guitar": "Guitar"
+          "piano": "Piano"   
+      - name: "htdemucs_6s"
+        model_file: "htdemucs_6s.yaml"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          "vocals": "Vocals"
+          "drums": "Drums"
+          "bass": "Bass"
+          "other": "Other"
+          "guitar": "Guitar"
+          "piano": "Piano"
+      - name: "htdemucs_ft"
+        model_file: "htdemucs_ft.yaml"
+        mdx_params: {}
+        vr_params: {}
+        demucs_params: {}
+        mdxc_params: {}
+        output_names: 
+          "vocals": "Vocals"
+          "drums": "Drums"
+          "bass": "Bass"
+          "other": "Other"
+
   - name: "vocals_dry"
     type: "separate"
     input_dir: "vocals"
     output_dir: "vocals_dry"
+    filename_filter: "(Vocals)"
     models:
       - name: "MDX23C-De-Reverb-AJ"
         model_file: "MDX23C-De-Reverb-aufr33-jarredou.ckpt"
@@ -176,6 +231,25 @@ stages:
     type: "ensemble"
     mode: "vocals"
     input_dir: "vocals"
+    filename_filter: "(Vocals)"
     output_dir: "ensemble"
     output_name: "vocals_ensemble.wav"
-    top_k: 5        
+    top_k: 5
+
+  - name: "inst_ensemble_vocals"
+    type: "ensemble"
+    mode: "instrumental"
+    input_dir: "vocals"
+    filename_filter: "(Instrumental)"
+    output_dir: "ensemble"
+    output_name: "instrumental_ensemble_no_vocals.wav"
+    top_k: 5
+
+  - name: "inst_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    input_dir: "instrumental"
+    filename_filter: "(Instrumental)"
+    output_dir: "ensemble"
+    output_name: "instrumental_ensemble.wav"
+    top_k: 5

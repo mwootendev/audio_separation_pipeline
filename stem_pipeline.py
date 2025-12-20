@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Any, Dict, List
+import shutil
 
 import yaml
 
@@ -38,7 +39,14 @@ def collect_inputs(stage_cfg: dict, mix_path: Path, base_output: Path) -> List[P
     if str(inp).upper() == "MIX":
         return [mix_path]
     inp_dir = resolve_path(base_output, inp)
-    return sorted(inp_dir.rglob("*.wav")) if inp_dir and inp_dir.exists() else []
+    candidates = sorted(inp_dir.rglob("*.wav")) if inp_dir and inp_dir.exists() else []
+    filters = stage_cfg.get("filename_filter")
+    if filters:
+        if isinstance(filters, str):
+            filters = [filters]
+        lfilt = [f.lower() for f in filters if f]
+        candidates = [p for p in candidates if any(f in p.name.lower() for f in lfilt)]
+    return candidates
 
 
 def ensure_dir(p: Path) -> Path:
@@ -73,15 +81,21 @@ def rename_outputs(generated: List[Path], target_dir: Path, input_stem: str, mod
     renamed: List[Path] = []
     for src in generated:
         src_path = Path(src)
+        if not src_path.is_absolute():
+            src_path = target_dir / src_path
+
         stem_type = src_path.stem
         if output_names:
             for k, v in output_names.items():
-                if k.lower() in src_path.stem.lower():
+                if k and k.lower() in src_path.stem.lower():
                     stem_type = v
                     break
-        new_name = f"{input_stem}_{stem_type}_{model_name}{src_path.suffix}"
+        new_name = f"{input_stem}-{model_name} ({stem_type}){src_path.suffix}"
         dest = target_dir / new_name
-        dest.write_bytes(src_path.read_bytes())
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            dest.unlink()
+        src_path.rename(dest)
         renamed.append(dest)
     return renamed
 
@@ -101,16 +115,21 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
     # separate
     all_outputs: List[Path] = []
     model_dir = resolve_path(Path(), global_cfg.get("model_file_dir") or "") or Path()
-    
+    work_root = out_dir / "_work"
+
     for model_cfg in stage_cfg.get("models", []):
         friendly = model_cfg.get("name") or Path(model_cfg["model_file"]).stem
-        sep = config_separator(model_cfg, global_cfg, stage_cfg, model_dir, model_out_dir)
         output_names = model_cfg.get("output_names") or stage_cfg.get("output_names")
+        model_out_dir = ensure_dir(work_root / friendly)
+        sep = config_separator(model_cfg, global_cfg, stage_cfg, model_dir, model_out_dir)
         for audio_file in inputs:
-            model_out_dir = ensure_dir(out_dir / audio_file.stem / friendly)
-            generated = sep.separate(str(audio_file), output_names)
-            renamed = rename_outputs([Path( out_dir / audio_file.stem / friendly / p) for p in generated], model_out_dir, audio_file.stem, friendly, output_names)
+            generated = sep.separate(str(audio_file))
+            generated_paths = [Path(p) if Path(p).is_absolute() else model_out_dir / p for p in generated]
+            renamed = rename_outputs(generated_paths, out_dir, audio_file.stem, friendly, output_names)
             all_outputs.extend(renamed)
+
+    if work_root.exists():
+        shutil.rmtree(work_root, ignore_errors=True)
     return all_outputs
 
 
