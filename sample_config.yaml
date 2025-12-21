@@ -13,40 +13,35 @@ stages:
     models:
       - name: "Voc-MBR"
         model_file: "vocals_mel_band_roformer.ckpt"        
-        invert_using_spec: true
         output_names: 
           Vocals: "Vocals"
           other: "Instrumental"
       - name: "MDX23C-InstVoc-HQ2"
-        model_file: "MDX23C-8KFFT-InstVoc_HQ_2.ckpt"        
-        invert_using_spec: true
+        model_file: "MDX23C-8KFFT-InstVoc_HQ_2.ckpt"
+        mdxc_params: {"segment_size": 512, "override_model_segment_size": True, "batch_size": 1, "overlap": 24, "pitch_shift": 0}
         output_names: 
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "MBR-Kim-FT-unwa"
         model_file: "mel_band_roformer_kim_ft_unwa.ckpt"        
-        invert_using_spec: true
         output_names: 
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "MBR-big-beta6x"
         model_file: "melband_roformer_big_beta6x.ckpt"        
-        invert_using_spec: true
         output_names: 
           Vocals: "Vocals"
           Other: "Instrumental"
       - name: "BSR-Voc-Revive-v3e"
-        model_file: "bs_roformer_vocals_revive_v3e_unwa.ckpt"        
-        invert_using_spec: true
+        model_file: "bs_roformer_vocals_revive_v3e_unwa.ckpt"
         output_names: 
           Vocals: "Vocals"
           Other: "Instrumental"
-      - name: "BSR-Voc-Ressurection"
-        model_file: "bs_roformer_vocals_resurrection_unwa.ckpt"
-        invert_using_spec: true
+      - name: "BS-Roformer-SW"
+        model_file: "BS-Roformer-SW.ckpt"
+        output_single_stem: "vocals"
         output_names: 
-          Vocals: "Vocals"
-          Other: "Instrumental"
+          "vocals": "Vocals"          
       - name: "MBR-Voc-fv6_gabox"  
         model_file: "mel_band_roformer_vocals_fv6_gabox.ckpt"        
         invert_using_spec: true
@@ -163,74 +158,128 @@ stages:
         output_single_stem: "No Reverb"
         output_names: 
           "No Reverb": "Vocals (Dry)"
+      - name: "UVR-DeEcho-DeReverb"
+        model_file: "UVR-DeEcho-DeReverb.pth"
+        output_single_stem: "no reverb"
+        output_names: 
+          "no reverb": "Vocals (Dry)"
 
-  - name: "vocals_ensemble_dry"
-    type: "ensemble"
-    mode: "vocals"
-    input_dir: "vocals_dry"
-    output_dir: "ensemble"
-    output_name: "vocals_ensemble_dry.wav"
-    top_k: 5
-
-  - name: "vocals_ensemble"
-    type: "ensemble"
-    mode: "vocals"
+  - name: "vocals_debleed"
+    type: "separate"
     input_dir: "vocals"
+    output_dir: "debleed"
     filename_filter: "(Vocals)"
-    output_dir: "ensemble"
-    output_name: "vocals_ensemble.wav"
-    top_k: 5
+    models:
+      - name: "MBR-Denoise-Debleed-gabox"
+        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
+        output_single_stem: "Instrumental"
+        output_names: 
+          Instrumental: "Debleed"
+      - name: "MBR-Bleed-Suppressor-v1"
+        model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
+        output_single_stem: "Bleed"
+        output_names: 
+          Bleed: "Debleed"
 
-  - name: "inst_ensemble_vocals"
-    type: "ensemble"
-    mode: "instrumental"
-    input_dir: "vocals"
-    filename_filter: "(Instrumental)"
-    output_dir: "ensemble"
-    output_name: "instrumental_ensemble_no_vocals.wav"
-    top_k: 5
-
-  - name: "inst_ensemble"
-    type: "ensemble"
-    mode: "instrumental"
-    input_dir: "instrumental"
-    filename_filter: "(Instrumental)"
-    output_dir: "ensemble"
-    output_name: "instrumental_ensemble.wav"
-    top_k: 3
-
-  - name: "bass_ensemble"
-    type: "ensemble"
-    mode: "instrumental"
+  - name: "inst_debleed"
+    type: "separate"
     input_dir: "instrumental_multistem"
-    filename_filter: "(Bass)"
-    output_dir: "ensemble"
-    output_name: "instrumental_ensemble_bass.wav"
-    top_k: 5
+    output_dir: "debleed"
+    models:
+      - name: "MBR-Denoise-Debleed-gabox"
+        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
+        output_single_stem: "Instrumental"
+        output_names: 
+          Instrumental: "Debleed"
+      - name: "MBR-Bleed-Suppressor-v1"
+        model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
+        output_single_stem: "Bleed"
+        output_names: 
+          Bleed: "Debleed"
 
-  - name: "drums_ensemble"
-    type: "ensemble"
-    mode: "instrumental"
-    input_dir: "instrumental_multistem"
-    filename_filter: "(Drums)"
-    output_dir: "ensemble"
-    output_name: "instrumental_ensemble_drums.wav"
-    top_k: 5
+  - name: "vocals_dry_debleed"
+    type: "separate"
+    input_dir: "vocals_dry"
+    output_dir: "debleed_dry"
+    models:
+      - name: "MBR-Denoise-Debleed-gabox"
+        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
+        output_single_stem: "Instrumental"
+        output_names: 
+          Instrumental: "Debleed"
+      - name: "MBR-Bleed-Suppressor-v1"
+        model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
+        output_single_stem: "Bleed"
+        output_names: 
+          Bleed: "Debleed"       
 
-  - name: "guitar_ensemble"
-    type: "ensemble"
-    mode: "instrumental"
-    input_dir: "instrumental_multistem"
-    filename_filter: "(Guitar)"
-    output_dir: "ensemble"
-    output_name: "instrumental_ensemble_guitar.wav"
-    top_k: 5
+  # - name: "vocals_ensemble_dry"
+  #   type: "ensemble"
+  #   mode: "vocals"
+  #   input_dir: "debleed_dry"
+  #   output_dir: "ensemble"
+  #   output_name: "vocals_ensemble_dry.wav"
+  #   top_k: 3
 
-  - name: "piano_ensemble"
-    type: "ensemble"
-    mode: "instrumental"
-    input_dir: "instrumental_multistem"
-    filename_filter: "(Piano)"
-    output_dir: "ensemble"
-    output_name: "instrumental_ensemble_piano.wav"
-    top_k: 5      
+  # - name: "vocals_ensemble"
+  #   type: "ensemble"
+  #   mode: "vocals"
+  #   input_dir: "vocals"
+  #   filename_filter: "(Vocals)"
+  #   output_dir: "ensemble"
+  #   output_name: "vocals_ensemble.wav"
+  #   top_k: 5
+
+  # - name: "inst_ensemble_vocals"
+  #   type: "ensemble"
+  #   mode: "instrumental"
+  #   input_dir: "vocals"
+  #   filename_filter: "(Instrumental)"
+  #   output_dir: "ensemble"
+  #   output_name: "instrumental_ensemble_no_vocals.wav"
+  #   top_k: 5
+
+  # - name: "inst_ensemble"
+  #   type: "ensemble"
+  #   mode: "instrumental"
+  #   input_dir: "instrumental"
+  #   filename_filter: "(Instrumental)"
+  #   output_dir: "ensemble"
+  #   output_name: "instrumental_ensemble.wav"
+  #   top_k: 3
+
+  # - name: "bass_ensemble"
+  #   type: "ensemble"
+  #   mode: "instrumental"
+  #   input_dir: "instrumental_multistem"
+  #   filename_filter: "(Bass)"
+  #   output_dir: "ensemble"
+  #   output_name: "instrumental_ensemble_bass.wav"
+  #   top_k: 5
+
+  # - name: "drums_ensemble"
+  #   type: "ensemble"
+  #   mode: "instrumental"
+  #   input_dir: "instrumental_multistem"
+  #   filename_filter: "(Drums)"
+  #   output_dir: "ensemble"
+  #   output_name: "instrumental_ensemble_drums.wav"
+  #   top_k: 5
+
+  # - name: "guitar_ensemble"
+  #   type: "ensemble"
+  #   mode: "instrumental"
+  #   input_dir: "instrumental_multistem"
+  #   filename_filter: "(Guitar)"
+  #   output_dir: "ensemble"
+  #   output_name: "instrumental_ensemble_guitar.wav"
+  #   top_k: 5
+
+  # - name: "piano_ensemble"
+  #   type: "ensemble"
+  #   mode: "instrumental"
+  #   input_dir: "instrumental_multistem"
+  #   filename_filter: "(Piano)"
+  #   output_dir: "ensemble"
+  #   output_name: "instrumental_ensemble_piano.wav"
+  #   top_k: 5      

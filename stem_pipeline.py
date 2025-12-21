@@ -13,7 +13,7 @@ from stem_ensemble import build_vocals_ensemble, build_instrumental_ensemble
 
 
 VOCAL_KEYWORDS = ["vocal", "vox", "sing", "voice"]
-INSTRUMENTAL_KEYWORDS = ["instrumental", "inst", "music", "backing", "accompaniment"]
+INSTRUMENTAL_KEYWORDS = ["instrumental", "drums", "bass", "guitar", "piano"]
 
 
 def load_config(path: Path) -> Dict[str, Any]:
@@ -176,6 +176,7 @@ def run_ensemble_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> Li
         print(f"[{stage_cfg.get('name','?')}] Vocals ensemble -> {out_path}")
         return [out_path]
     if mode == "instrumental":
+        print(str(inputs))
         candidates = [p for p in inputs if any(k in p.name.lower() for k in INSTRUMENTAL_KEYWORDS)]
         build_instrumental_ensemble(candidates, out_path, vocals_path=None)
         print(f"[{stage_cfg.get('name','?')}] Instrumental ensemble -> {out_path}")

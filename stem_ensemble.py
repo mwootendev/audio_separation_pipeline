@@ -135,7 +135,7 @@ def score_vocals(
 def rank_vocal_candidates(
     candidates: List[Path],
     instrumentals_by_candidate: dict[Path, Path] | None,
-    sr_target: int = 44100,
+    sr_target: int = 48000,
 ) -> List[VocalScore]:
     scores: List[VocalScore] = []
     for vpath in candidates:
