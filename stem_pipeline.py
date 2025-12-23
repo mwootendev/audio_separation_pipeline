@@ -134,6 +134,10 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
 
     if stage_type == "ensemble":
         return run_ensemble_stage(stage_cfg, out_dir, inputs)
+    if stage_type == "filter":
+        return run_filter_stage(stage_cfg, out_dir, inputs)
+    if stage_type == "midi":
+        return run_midi_stage(stage_cfg, out_dir, inputs)
 
     # separate
     all_outputs: List[Path] = []
@@ -168,21 +172,113 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
 def run_ensemble_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> List[Path]:
     mode = stage_cfg.get("mode", "vocals").lower()
     top_k = stage_cfg.get("top_k")
+    combine = stage_cfg.get("combine_type") or stage_cfg.get("combine")
     out_path = out_dir / (stage_cfg.get("output_name") or f"{mode}_ensemble.wav")
     if mode == "vocals":
         candidates = [p for p in inputs if any(k in p.name.lower() for k in VOCAL_KEYWORDS)]
         scores = {p: 0.0 for p in candidates}
-        build_vocals_ensemble(candidates, scores, out_path, top_k=min(top_k or len(candidates), len(candidates)))
+        build_vocals_ensemble(candidates, scores, out_path, top_k=min(top_k or len(candidates), len(candidates)), combine=(combine or "avg"))
         print(f"[{stage_cfg.get('name','?')}] Vocals ensemble -> {out_path}")
         return [out_path]
     if mode == "instrumental":
-        print(str(inputs))
         candidates = [p for p in inputs if any(k in p.name.lower() for k in INSTRUMENTAL_KEYWORDS)]
-        build_instrumental_ensemble(candidates, out_path, vocals_path=None)
+        combine_use = (combine or "median").lower()
+        build_instrumental_ensemble(candidates, out_path, vocals_path=None, combine=combine_use)
         print(f"[{stage_cfg.get('name','?')}] Instrumental ensemble -> {out_path}")
         return [out_path]
     print(f"[{stage_cfg.get('name','?')}] Unknown ensemble mode '{mode}', skipping.")
     return []
+
+
+def run_filter_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> List[Path]:
+    """
+    Apply keep-bands filters to inputs.
+    stage_cfg expects:
+      bands: list of [lo, hi] Hz ranges to keep (summed)
+    """
+    import numpy as np
+    import soundfile as sf
+    from scipy.signal import butter, sosfilt
+
+    bands = stage_cfg.get("bands") or []
+    if not bands:
+        print(f"[{stage_cfg.get('name','?')}] No bands specified, skipping.")
+        return []
+
+    outputs: List[Path] = []
+    for wav in inputs:
+        audio, sr = sf.read(str(wav), always_2d=True)
+        x = audio.astype(np.float32)
+        y = np.zeros_like(x)
+        for lo, hi in bands:
+            lo = max(10.0, float(lo))
+            hi = float(hi)
+            hi = min(0.49 * sr, hi)
+            sos = butter(6, [lo, hi], btype="bandpass", fs=sr, output="sos")
+            # Filter along the time axis (axis=0) per channel; avoids cross-channel bleed.
+            y += sosfilt(sos, x, axis=0)
+        # Normalize lightly
+        peak = np.max(np.abs(y)) + 1e-12
+        y = y * (0.99 / peak)
+        out_path = out_dir / f"{wav.stem} ({stage_cfg.get('name','filter')}).wav"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(str(out_path), y, sr)
+        outputs.append(out_path)
+    return outputs
+
+
+def run_midi_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> List[Path]:
+    """
+    Convert stems to MIDI using basic-pitch and/or omnizart.
+    stage_cfg options:
+      engines: list of "basic_pitch" and/or "omnizart" (default both if available)
+    """
+    engines = stage_cfg.get("engines") or ["basic_pitch", "omnizart"]
+    outputs: List[Path] = []
+
+    if "basic_pitch" in engines:
+        try:
+            from basic_pitch.inference import predict
+            has_bp = True
+        except Exception:
+            print("[warn] basic_pitch not available, skipping.")
+            has_bp = False
+    else:
+        has_bp = False
+
+    if "omnizart" in engines:
+        try:
+            import omnizart
+            has_omni = True
+        except Exception:
+            print("[warn] omnizart not available, skipping.")
+            has_omni = False
+    else:
+        has_omni = False
+
+    for wav in inputs:
+        if has_bp:
+            try:
+                midi_path = out_dir / f"{wav.stem} ({stage_cfg.get('name','midi')})_basic_pitch.mid"
+                midi_path.parent.mkdir(parents=True, exist_ok=True)
+                predict(str(wav), output_directory=str(midi_path.parent), midi=True, save_notes=False, visualize=False)
+                # basic-pitch writes its own midi name; move it
+                generated = midi_path.parent / f"{wav.stem}.mid"
+                if generated.exists():
+                    generated.rename(midi_path)
+                outputs.append(midi_path)
+            except Exception as exc:
+                print(f"[error] basic_pitch failed on {wav.name}: {exc}")
+        if has_omni:
+            try:
+                midi_path = out_dir / f"{wav.stem} ({stage_cfg.get('name','midi')})_omnizart.mid"
+                midi_path.parent.mkdir(parents=True, exist_ok=True)
+                omnizart.music.transcribe(str(wav), output=str(midi_path))
+                outputs.append(midi_path)
+            except Exception as exc:
+                print(f"[error] omnizart failed on {wav.name}: {exc}")
+
+    return outputs
 
 
 def main() -> None:

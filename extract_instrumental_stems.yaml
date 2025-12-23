@@ -6,32 +6,7 @@ global_config:
   sample_rate: 48000
   use_autocast: true
 stages:
-  - name: "vocals_primary"
-    type: "separate"
-    input_dir: "MIX"
-    output_dir: "vocals"
-    models:
-      - name: "Voc-MBR"
-        model_file: "vocals_mel_band_roformer.ckpt"        
-        output_names: 
-          Vocals: "Vocals"
-          other: "Instrumental"      
-      - name: "MBR-Kim-FT-unwa"
-        model_file: "mel_band_roformer_kim_ft_unwa.ckpt"        
-        output_names: 
-          Vocals: "Vocals"
-          Other: "Instrumental"
-      - name: "MBR-big-beta6x"
-        model_file: "melband_roformer_big_beta6x.ckpt"        
-        output_names: 
-          Vocals: "Vocals"
-          Other: "Instrumental"      
-      - name: "BS-Roformer-SW"
-        model_file: "BS-Roformer-SW.ckpt"
-        output_single_stem: "vocals"
-        output_names: 
-          "vocals": "Vocals"      
-
+ 
   - name: "instrumental_primary"
     type: "separate"
     input_dir: "MIX"
@@ -172,58 +147,6 @@ stages:
           "ride": "Ride"
           "crash": "Crash"
 
-  - name: "vocals_filtered"
-    type: "filter"
-    input_dir: "vocals"
-    output_dir: "vocals_filtered"
-    filename_filter: "(Vocals)"
-    bands:
-      - [100, 16000]        
-
-  - name: "vocals_dry"
-    type: "separate"
-    input_dir: "vocals_filtered"
-    output_dir: "vocals_dry"
-    filename_filter: "(Vocals)"
-    models:
-      - name: "MDX23C-De-Reverb-AJ"
-        model_file: "MDX23C-De-Reverb-aufr33-jarredou.ckpt"
-        output_single_stem: "dry"
-        output_names: 
-          dry: "Vocals (Dry)"
-      - name: "UVR-De-Reverb-AJ"
-        model_file: "UVR-De-Reverb-aufr33-jarredou.pth"
-        output_single_stem: "dry"
-        output_names: 
-          dry: "Vocals (Dry)"    
-      - name: "De-Reverb-HQ-FoxJoy"
-        model_file: "Reverb_HQ_By_FoxJoy.onnx"
-        output_single_stem: "No Reverb"
-        output_names: 
-          "No Reverb": "Vocals (Dry)"
-      - name: "UVR-DeEcho-DeReverb"
-        model_file: "UVR-DeEcho-DeReverb.pth"
-        output_single_stem: "no reverb"
-        output_names: 
-          "no reverb": "Vocals (Dry)"
-
-  - name: "vocals_debleed"
-    type: "separate"
-    input_dir: "vocals_filtered"
-    output_dir: "debleed"
-    filename_filter: "(Vocals)"
-    models:
-      - name: "MBR-Denoise-Debleed-gabox"
-        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
-        output_single_stem: "Instrumental"
-        output_names: 
-          Instrumental: "Debleed"
-      - name: "MBR-Bleed-Suppressor-v1"
-        model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
-        output_single_stem: "Bleed"
-        output_names: 
-          Bleed: "Debleed"
-
   - name: "inst_debleed"
     type: "separate"
     input_dir: "instrumental_multistem"
@@ -240,83 +163,51 @@ stages:
         output_names: 
           Bleed: "Debleed"
 
-  - name: "vocals_dry_debleed"
-    type: "separate"
-    input_dir: "vocals_dry"
-    output_dir: "debleed_dry"
-    models:
-      - name: "MBR-Denoise-Debleed-gabox"
-        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
-        output_single_stem: "Instrumental"
-        output_names: 
-          Instrumental: "Debleed"
-      - name: "MBR-Bleed-Suppressor-v1"
-        model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
-        output_single_stem: "Bleed"
-        output_names: 
-          Bleed: "Debleed"       
-
-  - name: "vocals_ensemble_dry"
-    type: "ensemble"
-    mode: "vocals"
-    input_dir: "debleed_dry"
-    output_dir: "ensemble"
-    output_name: "Ensemble (Vocals (Dry)).wav"
-    top_k: 3
-
-  - name: "vocals_ensemble"
-    type: "ensemble"
-    mode: "vocals"
-    input_dir: "vocals_filtered"
-    filename_filter: "(Vocals)"
-    output_dir: "ensemble"
-    output_name: "Ensemble (Vocals).wav"
-    top_k: 5
-
-  - name: "inst_ensemble_vocals"
+  - name: "inst_ensemble_debleed"
     type: "ensemble"
     mode: "instrumental"
-    input_dir: "vocals"
+    combine: "avg"
+    input_dir: "debleed"
     filename_filter: "(Instrumental)"
     output_dir: "ensemble"
-    output_name: "Ensemble (Instrumental) FromVoc.wav"
+    output_name: "Ensemble (Instrumental) (Debleed).wav"
     top_k: 5
 
   - name: "inst_ensemble"
     type: "ensemble"
     mode: "instrumental"
+    combine: "avg"
     input_dir: "instrumental"
     filename_filter: "(Instrumental)"
     output_dir: "ensemble"
     output_name: "Ensemble (Instrumental).wav"
-    top_k: 3
 
   - name: "bass_ensemble"
     type: "ensemble"
     mode: "instrumental"
-    input_dir: "instrumental_multistem"
+    combine: "avg"
+    input_dir: "debleed"
     filename_filter: "(Bass)"
     output_dir: "ensemble"
-    output_name: "Ensemble (Bass).wav"
-    top_k: 5
+    output_name: "Ensemble (Bass).wav"    
 
   - name: "drums_ensemble"
     type: "ensemble"
     mode: "instrumental"
-    input_dir: "instrumental_multistem"
+    combine: "avg"
+    input_dir: "debleed"
     filename_filter: "(Drums)"
     output_dir: "ensemble"
-    output_name: "Ensemble (Drums).wav"
-    top_k: 5
+    output_name: "Ensemble (Drums).wav"    
 
   - name: "drums_ensemble_kick"
     type: "ensemble"
     mode: "instrumental"
+    combine: "avg"
     input_dir: "instrumental_multistem_drums"
     filename_filter: "(Kick)"
     output_dir: "ensemble"
-    output_name: "Ensemble (Kick).wav"
-    top_k: 5
+    output_name: "Ensemble (Kick).wav"    
 
   - name: "drums_ensemble_snare"
     type: "ensemble"
@@ -324,8 +215,7 @@ stages:
     input_dir: "instrumental_multistem_drums"
     filename_filter: "(Snare)"
     output_dir: "ensemble"
-    output_name: "Ensemble (Snare).wav"
-    top_k: 5
+    output_name: "Ensemble (Snare).wav"    
 
   - name: "drums_ensemble_toms"
     type: "ensemble"
@@ -380,13 +270,6 @@ stages:
     output_dir: "ensemble"
     output_name: "Ensemble (Piano).wav"
     top_k: 5
-
-  - name: "vocals_midi"
-    type: "midi"
-    input_dir: "ensemble"
-    output_dir: "ensemble_midi"
-    filename_filter: "(Vocals)"
-    engines: ["basic_pitch"]
 
   - name: "bass_midi"
     type: "midi"

@@ -179,6 +179,7 @@ def build_vocals_ensemble(
     nperseg: int = 4096,
     noverlap: int = 3072,
     p: float = 1.0,
+    combine: str = "avg",  # "avg" (weighted), "max", "min"
 ) -> Path:
     """
     Weighted complex-STFT merge:
@@ -222,16 +223,27 @@ def build_vocals_ensemble(
         specs.append(Z.astype(np.complex64))
         mags.append(np.abs(Z).astype(np.float32))
 
-    # Weighted merge
-    num = np.zeros_like(specs[0], dtype=np.complex64)
-    den = np.zeros_like(mags[0], dtype=np.float32)
+    combine = combine.lower()
+    if combine == "max":
+        mags_stack = np.stack(mags, axis=0)
+        idx = np.argmax(mags_stack, axis=0)
+        Z_stack = np.stack(specs, axis=0)
+        Z_ens = np.take_along_axis(Z_stack, idx[None, ...], axis=0)[0]
+    elif combine == "min":
+        mags_stack = np.stack(mags, axis=0)
+        idx = np.argmin(mags_stack, axis=0)
+        Z_stack = np.stack(specs, axis=0)
+        Z_ens = np.take_along_axis(Z_stack, idx[None, ...], axis=0)[0]
+    else:  # "avg" weighted
+        num = np.zeros_like(specs[0], dtype=np.complex64)
+        den = np.zeros_like(mags[0], dtype=np.float32)
 
-    for i, (Z, M) in enumerate(zip(specs, mags)):
-        W = (np.power(M, p) * w_model[i]).astype(np.float32)
-        num += (W * Z)
-        den += W
+        for i, (Z, M) in enumerate(zip(specs, mags)):
+            W = (np.power(M, p) * w_model[i]).astype(np.float32)
+            num += (W * Z)
+            den += W
 
-    Z_ens = num / (den + 1e-12)
+        Z_ens = num / (den + 1e-12)
 
     # Inverse STFT
     _, y = istft(Z_ens, fs=sr_use, nperseg=nperseg, noverlap=noverlap, window="hann", input_onesided=True)
@@ -271,10 +283,11 @@ def build_instrumental_ensemble(
     out_path: Path,
     mix_path: Optional[Path] = None,
     vocals_path: Optional[Path] = None,
+    combine: str = "median",  # "median", "avg", "max", "min"
 ) -> Path:
     """
     Build an instrumental ensemble that reduces vocal bleed:
-      - median combine multiple instrument stems (robust to outliers with vocals)
+      - configurable combine: median (default), avg, max, min
       - optional final subtraction of vocals to scrub leftovers
     """
     if not instrumental_paths:
@@ -303,7 +316,15 @@ def build_instrumental_ensemble(
     sigs = [np.pad(x, (0, L - len(x))) for x in sigs]
 
     stack = np.stack(sigs, axis=0)
-    inst = np.median(stack, axis=0).astype(np.float32)
+    combine = combine.lower()
+    if combine == "avg":
+        inst = np.mean(stack, axis=0).astype(np.float32)
+    elif combine == "max":
+        inst = np.max(stack, axis=0).astype(np.float32)
+    elif combine == "min":
+        inst = np.min(stack, axis=0).astype(np.float32)
+    else:  # median
+        inst = np.median(stack, axis=0).astype(np.float32)
 
     if vocals_path:
         voc, sr_v = _read_wav_mono(vocals_path)

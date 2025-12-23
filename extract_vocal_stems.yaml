@@ -1,0 +1,115 @@
+global_config:
+  model_filename: "vocals_mel_band_roformer.ckpt"
+  model_file_dir: "./models_cache"
+  output_dir: "./stems"
+  output_format: "wav"
+  sample_rate: 48000
+  use_autocast: true
+stages:
+  - name: "vocals_primary"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "vocals"
+    models:
+  #     - name: "Voc-MBR"
+  #       model_file: "vocals_mel_band_roformer.ckpt"        
+  #       output_names: 
+  #         Vocals: "Vocals"
+  #         other: "Instrumental"      
+  #     - name: "MBR-Kim-FT-unwa"
+  #       model_file: "mel_band_roformer_kim_ft_unwa.ckpt"        
+  #       output_names: 
+  #         Vocals: "Vocals"
+  #         Other: "Instrumental"
+  #     - name: "MBR-big-beta6x"
+  #       model_file: "melband_roformer_big_beta6x.ckpt"        
+  #       output_names: 
+  #         Vocals: "Vocals"
+  #         Other: "Instrumental"      
+      - name: "BS-Roformer-SW"
+        model_file: "BS-Roformer-SW.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"      
+
+  - name: "vocals_filtered"
+    type: "filter"
+    input_dir: "vocals"
+    output_dir: "vocals_filtered"
+    filename_filter: "(Vocals)"
+    bands:
+      - [100, 16000]
+
+  - name: "vocals_dry"
+    type: "separate"
+    input_dir: "vocals_filtered"
+    output_dir: "vocals_dry"
+    filename_filter: "(Vocals)"
+    models:
+      - name: "MDX23C-De-Reverb-AJ"
+        model_file: "MDX23C-De-Reverb-aufr33-jarredou.ckpt"
+        output_single_stem: "dry"
+        output_names: 
+          dry: "Vocals (Dry)"
+      - name: "De-Reverb-HQ-FoxJoy"
+        model_file: "Reverb_HQ_By_FoxJoy.onnx"
+        output_single_stem: "No Reverb"
+        output_names: 
+          "No Reverb": "Vocals (Dry)"
+   
+  - name: "vocals_debleed"
+    type: "separate"
+    input_dir: "vocals_filtered"
+    output_dir: "debleed"
+    filename_filter: "(Vocals)"
+    models:
+      - name: "MBR-Denoise-Debleed-gabox"
+        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
+        output_single_stem: "Instrumental"
+        output_names: 
+          Instrumental: "Debleed"
+      - name: "MBR-Bleed-Suppressor-v1"
+        model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
+        output_single_stem: "Bleed"
+        output_names: 
+          Bleed: "Debleed"
+
+  - name: "vocals_dry_debleed"
+    type: "separate"
+    input_dir: "vocals_dry"
+    output_dir: "debleed_dry"
+    models:
+      - name: "MBR-Denoise-Debleed-gabox"
+        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
+        output_single_stem: "Instrumental"
+        output_names: 
+          Instrumental: "Debleed"
+      - name: "MBR-Bleed-Suppressor-v1"
+        model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
+        output_single_stem: "Bleed"
+        output_names: 
+          Bleed: "Debleed"
+
+  - name: "vocals_ensemble_dry"
+    type: "ensemble"
+    mode: "vocals"
+    combine: "avg"
+    input_dir: "debleed_dry"
+    output_dir: "ensemble"
+    output_name: "Ensemble (Vocals (Dry)).wav"
+
+  - name: "vocals_ensemble"
+    type: "ensemble"
+    mode: "vocals"
+    combine: "avg"
+    input_dir: "vocals_filtered"
+    filename_filter: "(Vocals)"
+    output_dir: "ensemble"
+    output_name: "Ensemble (Vocals).wav"   
+
+  - name: "vocals_midi"
+    type: "midi"
+    input_dir: "ensemble"
+    output_dir: "ensemble_midi"
+    filename_filter: "(Vocals)"
+    engines: ["basic_pitch"]                        
