@@ -5,8 +5,7 @@ global_config:
   output_format: "wav"
   sample_rate: 48000
   use_autocast: true
-stages:
- 
+stages: 
   - name: "instrumental_primary"
     type: "separate"
     input_dir: "MIX"
@@ -14,21 +13,53 @@ stages:
     models:
       - name: "UVR-Inst_HQ_5"
         model_file: "UVR-MDX-NET-Inst_HQ_5.onnx"
+        mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.5, "batch_size": 2, "enable_denoise": False}
         output_single_stem: "Instrumental"
-        mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.75, "batch_size": 1, "enable_denoise": False}
         output_names: 
           Instrumental: "Instrumental"
       - name: "Kim-Inst"
         model_file: "Kim_Inst.onnx"
+        mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.5, "batch_size": 2, "enable_denoise": False}
         output_single_stem: "instrumental"
         output_names: 
           instrumental: "Instrumental"
       - name: "MDX-NET-Inst-82"
         model_file: "UVR-MDX-NET_Inst_82_beta.onnx"
+        mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.5, "batch_size": 2, "enable_denoise": False}
         output_single_stem: "Instrumental"
-        mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.75, "batch_size": 1, "enable_denoise": False}
         output_names: 
           Instrumental: "Instrumental"
+      - name: "Voc-MBR"
+        model_file: "vocals_mel_band_roformer.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 12, "pitch_shift": 0}
+        invert_using_spec: true
+        output_single_stem: "other"
+        output_names: 
+          Vocals: "Instrumental"
+          other: "Instrumental"      
+      - name: "MBR-Kim-FT-unwa"
+        model_file: "mel_band_roformer_kim_ft_unwa.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 12, "pitch_shift": 0}
+        output_single_stem: "Other"
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+      - name: "MBR-big-beta6x"
+        model_file: "melband_roformer_big_beta6x.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 12, "pitch_shift": 0}
+        output_single_stem: "Other"
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+
+  - name: "inst_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: "median"
+    input_dir: "instrumental"
+    filename_filter: "(Instrumental)"
+    output_dir: "instrumental"
+    output_name: "Instrumental (Ensemble).wav"    
 
   - name: "instrumental_mix_multistem"
     type: "separate"
@@ -46,7 +77,7 @@ stages:
           "piano": "Piano"   
       - name: "htdemucs_6s"
         model_file: "htdemucs_6s.yaml"
-        demucs_params: {"segment_size": 256, "shifts": 4, "overlap": 0.75, "segments_enabled": True}
+        demucs_params: {"segment_size": 16, "shifts": 4, "overlap": 0.5, "segments_enabled": True}
         output_names: 
           "vocals": "Vocals"
           "drums": "Drums"
@@ -56,51 +87,17 @@ stages:
           "piano": "Piano"
       - name: "htdemucs_ft"
         model_file: "htdemucs_ft.yaml"
-        demucs_params: {"segment_size": 256, "shifts": 4, "overlap": 0.75, "segments_enabled": True}
+        demucs_params: {"segment_size": 16, "shifts": 4, "overlap": 0.5, "segments_enabled": True}
         output_names: 
           "vocals": "Vocals"
           "drums": "Drums"
           "bass": "Bass"
           "other": "Other"        
-
-  - name: "vocals_instrumental_multistem"
-    type: "separate"
-    input_dir: "vocals"
-    filename_filter: "(Instrumental)"
-    output_dir: "instrumental_multistem"
-    models:
-      - name: "BS-Roformer-SW"
-        model_file: "BS-Roformer-SW.ckpt"
-        output_names: 
-          "vocals": "Vocals"
-          "drums": "Drums"
-          "bass": "Bass"
-          "other": "Other"
-          "guitar": "Guitar"
-          "piano": "Piano"   
-      - name: "htdemucs_6s"
-        model_file: "htdemucs_6s.yaml"
-        demucs_params: {"segment_size": 256, "shifts": 4, "overlap": 0.75, "segments_enabled": True}
-        output_names: 
-          "vocals": "Vocals"
-          "drums": "Drums"
-          "bass": "Bass"
-          "other": "Other"
-          "guitar": "Guitar"
-          "piano": "Piano"
-      - name: "htdemucs_ft"
-        model_file: "htdemucs_ft.yaml"
-        demucs_params: {"segment_size": 256, "shifts": 4, "overlap": 0.75, "segments_enabled": True}
-        output_names: 
-          "vocals": "Vocals"
-          "drums": "Drums"
-          "bass": "Bass"
-          "other": "Other"        
-
-  - name: "instrumental_multistem"
+  
+  - name: "ensemble_multistem"
     type: "separate"
     input_dir: "instrumental"
-    filename_filter: "(Instrumental)"
+    filename_filter: "(Ensemble)"
     output_dir: "instrumental_multistem"
     models:
       - name: "BS-Roformer-SW"
@@ -114,7 +111,7 @@ stages:
           "piano": "Piano"   
       - name: "htdemucs_6s"
         model_file: "htdemucs_6s.yaml"
-        demucs_params: {"segment_size": 256, "shifts": 4, "overlap": 0.75, "segments_enabled": True}
+        demucs_params: {"segment_size": 16, "shifts": 4, "overlap": 0.5, "segments_enabled": True}
         output_names: 
           "vocals": "Vocals"
           "drums": "Drums"
@@ -124,7 +121,7 @@ stages:
           "piano": "Piano"
       - name: "htdemucs_ft"
         model_file: "htdemucs_ft.yaml"
-        demucs_params: {"segment_size": 256, "shifts": 4, "overlap": 0.75, "segments_enabled": True}
+        demucs_params: {"segment_size": 16, "shifts": 4, "overlap": 0.5, "segments_enabled": True}
         output_names: 
           "vocals": "Vocals"
           "drums": "Drums"
@@ -134,11 +131,12 @@ stages:
   - name: "drums_multistem"
     type: "separate"
     input_dir: "instrumental_multistem"
-    output_dir: "instrumental_multistem_drums"
+    output_dir: "instrumental_multistem"
     filename_filter: "(Drums)"
     models:
       - name: "MDX23C-DrumSep-AJ"
         model_file: "MDX23C-DrumSep-aufr33-jarredou.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}
         output_names: 
           "kick": "Kick"
           "snare": "Snare"
@@ -147,46 +145,11 @@ stages:
           "ride": "Ride"
           "crash": "Crash"
 
-  - name: "inst_debleed"
-    type: "separate"
-    input_dir: "instrumental_multistem"
-    output_dir: "debleed"
-    models:
-      - name: "MBR-Denoise-Debleed-gabox"
-        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
-        output_single_stem: "Instrumental"
-        output_names: 
-          Instrumental: "Debleed"
-      - name: "MBR-Bleed-Suppressor-v1"
-        model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
-        output_single_stem: "Bleed"
-        output_names: 
-          Bleed: "Debleed"
-
-  - name: "inst_ensemble_debleed"
-    type: "ensemble"
-    mode: "instrumental"
-    combine: "avg"
-    input_dir: "debleed"
-    filename_filter: "(Instrumental)"
-    output_dir: "ensemble"
-    output_name: "Ensemble (Instrumental) (Debleed).wav"
-    top_k: 5
-
-  - name: "inst_ensemble"
-    type: "ensemble"
-    mode: "instrumental"
-    combine: "avg"
-    input_dir: "instrumental"
-    filename_filter: "(Instrumental)"
-    output_dir: "ensemble"
-    output_name: "Ensemble (Instrumental).wav"
-
   - name: "bass_ensemble"
     type: "ensemble"
     mode: "instrumental"
-    combine: "avg"
-    input_dir: "debleed"
+    combine: "median"
+    input_dir: "instrumental_multistem"
     filename_filter: "(Bass)"
     output_dir: "ensemble"
     output_name: "Ensemble (Bass).wav"    
@@ -194,8 +157,8 @@ stages:
   - name: "drums_ensemble"
     type: "ensemble"
     mode: "instrumental"
-    combine: "avg"
-    input_dir: "debleed"
+    combine: "median"
+    input_dir: "instrumental_multistem"
     filename_filter: "(Drums)"
     output_dir: "ensemble"
     output_name: "Ensemble (Drums).wav"    
@@ -203,8 +166,8 @@ stages:
   - name: "drums_ensemble_kick"
     type: "ensemble"
     mode: "instrumental"
-    combine: "avg"
-    input_dir: "instrumental_multistem_drums"
+    combine: "median"
+    input_dir: "instrumental_multistem"
     filename_filter: "(Kick)"
     output_dir: "ensemble"
     output_name: "Ensemble (Kick).wav"    
@@ -212,7 +175,8 @@ stages:
   - name: "drums_ensemble_snare"
     type: "ensemble"
     mode: "instrumental"
-    input_dir: "instrumental_multistem_drums"
+    combine: "median"
+    input_dir: "instrumental_multistem"
     filename_filter: "(Snare)"
     output_dir: "ensemble"
     output_name: "Ensemble (Snare).wav"    
@@ -220,81 +184,115 @@ stages:
   - name: "drums_ensemble_toms"
     type: "ensemble"
     mode: "instrumental"
-    input_dir: "instrumental_multistem_drums"
+    combine: "median"
+    input_dir: "instrumental_multistem"
     filename_filter: "(Toms)"
     output_dir: "ensemble"
     output_name: "Ensemble (Toms).wav"
-    top_k: 5
 
   - name: "drums_ensemble_hihat"
     type: "ensemble"
     mode: "instrumental"
-    input_dir: "instrumental_multistem_drums"
+    combine: "median"
+    input_dir: "instrumental_multistem"
     filename_filter: "(Hihat)"
     output_dir: "ensemble"
-    output_name: "Ensemble (Hihat).wav"
-    top_k: 5
+    output_name: "Ensemble (Hihat).wav"    
 
   - name: "drums_ensemble_ride"
     type: "ensemble"
     mode: "instrumental"
-    input_dir: "instrumental_multistem_drums"
+    combine: "median"
+    input_dir: "instrumental_multistem"
     filename_filter: "(Ride)"
     output_dir: "ensemble"
     output_name: "Ensemble (Ride).wav"
-    top_k: 5
 
   - name: "drums_ensemble_crash"
     type: "ensemble"
     mode: "instrumental"
-    input_dir: "instrumental_multistem_drums"
+    combine: "median"
+    input_dir: "instrumental_multistem"
     filename_filter: "(Crash)"
     output_dir: "ensemble"
     output_name: "Ensemble (Crash).wav"
-    top_k: 5
-
+  
   - name: "guitar_ensemble"
     type: "ensemble"
     mode: "instrumental"
+    combine: "median"
     input_dir: "instrumental_multistem"
     filename_filter: "(Guitar)"
     output_dir: "ensemble"
     output_name: "Ensemble (Guitar).wav"
-    top_k: 5
 
   - name: "piano_ensemble"
     type: "ensemble"
     mode: "instrumental"
+    combine: "median"
     input_dir: "instrumental_multistem"
     filename_filter: "(Piano)"
     output_dir: "ensemble"
     output_name: "Ensemble (Piano).wav"
-    top_k: 5
 
-  - name: "bass_midi"
-    type: "midi"
-    input_dir: "ensemble"
-    output_dir: "ensemble_midi"
-    filename_filter: "(Bass)"
-    engines: ["basic_pitch"]
+  - name: "other_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: "median"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Other)"
+    output_dir: "ensemble"
+    output_name: "Ensemble (Other).wav"
 
-  - name: "guitar_midi"
-    type: "midi"
+  - name: "instrumental_debleed"
+    type: "separate"
     input_dir: "ensemble"
-    output_dir: "ensemble_midi"
-    filename_filter: "(Guitar)"
-    engines: ["basic_pitch"]
+    output_dir: "ensemble"
+    models:
+      - name: "MBR-Denoise-Debleed-gabox"
+        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}
+        output_single_stem: "Instrumental"
+        output_names: 
+          Instrumental: "Debleed"
 
-  - name: "piano_midi"
-    type: "midi"
+  - name: "instrumental_denoise"
+    type: "separate"
     input_dir: "ensemble"
-    output_dir: "ensemble_midi"
-    filename_filter: "(Piano)"
-    engines: ["basic_pitch"]    
+    output_dir: "ensemble"
+    filename_filter: "(Debleed)"
+    models:
+      - name: "UVR-DeNoise"
+        model_file: "UVR-DeNoise.pth"
+        vr_params: {"batch_size": 4, "window_size": 320, "aggression": 5, "enable_tta": True, "enable_post_process": False, "post_process_threshold": 0.2, "high_end_process": False}
+        output_single_stem: "no noise"
+        output_names: 
+          "no noise": "Denoised"    
+  
+  # - name: "bass_midi"
+  #   type: "midi"
+  #   input_dir: "ensemble"
+  #   output_dir: "ensemble_midi"
+  #   filename_filter: "(Bass)"
+  #   engines: ["basic_pitch"]
 
-  - name: "drums_midi"
-    type: "midi"
-    input_dir: "ensemble"
-    output_dir: "ensemble_midi"
-    filename_filter: "(Drums)"
-    engines: ["omnizart"]
+  # - name: "guitar_midi"
+  #   type: "midi"
+  #   input_dir: "ensemble"
+  #   output_dir: "ensemble_midi"
+  #   filename_filter: "(Guitar)"
+  #   engines: ["basic_pitch"]
+
+  # - name: "piano_midi"
+  #   type: "midi"
+  #   input_dir: "ensemble"
+  #   output_dir: "ensemble_midi"
+  #   filename_filter: "(Piano)"
+  #   engines: ["basic_pitch"]    
+
+  # - name: "drums_midi"
+  #   type: "midi"
+  #   input_dir: "ensemble"
+  #   output_dir: "ensemble_midi"
+  #   filename_filter: "(Drums)"
+  #   engines: ["omnizart"]
