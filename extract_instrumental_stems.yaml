@@ -68,6 +68,7 @@ stages:
     models:
       - name: "BS-Roformer-SW"
         model_file: "BS-Roformer-SW.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}
         output_names: 
           "vocals": "Vocals"
           "drums": "Drums"
@@ -102,6 +103,7 @@ stages:
     models:
       - name: "BS-Roformer-SW"
         model_file: "BS-Roformer-SW.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}
         output_names: 
           "vocals": "Vocals"
           "drums": "Drums"
@@ -126,12 +128,68 @@ stages:
           "vocals": "Vocals"
           "drums": "Drums"
           "bass": "Bass"
-          "other": "Other"        
+          "other": "Other"
+
+  - name: "filter_bass"
+    type: "filter"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Bass)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [30, 5000]   # keep lows & some upper harmonics; trim sub-rumble and excess hiss
+
+  - name: "filter_drums_full"
+    type: "filter"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Drums)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [35, 14000]  # full kit; removes sub-rumble and ultrahigh fizz
+
+  - name: "filter_guitar"
+    type: "filter"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Guitar)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [70, 10000]
+
+  - name: "filter_piano"
+    type: "filter"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Piano)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [40, 14000]
+
+  - name: "filter_strings"
+    type: "filter"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Strings|Violin|Viola|Cello)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [100, 16000]   # for cello, this still keeps ~100 Hz; adjust to 60–120 if needed
+
+  - name: "filter_brass_winds"
+    type: "filter"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Brass|Sax|Trumpet|Trombone|Flute|Clarinet)"
+    output_dir: "instrumental_multistem"
+    bands:
+      - [80, 14000]
+
+  - name: "filter_other"
+    type: "filter"
+    input_dir: "instrumental_multistem"
+    filename_filter: "(Other)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [40, 14000]                  
 
   - name: "drums_multistem"
     type: "separate"
-    input_dir: "instrumental_multistem"
-    output_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
+    output_dir: "instrumental_multistem_drums"
     filename_filter: "(Drums)"
     models:
       - name: "MDX23C-DrumSep-AJ"
@@ -145,11 +203,59 @@ stages:
           "ride": "Ride"
           "crash": "Crash"
 
+  - name: "filter_kick"
+    type: "filter"
+    input_dir: "instrumental_multistem_drums"
+    filename_filter: "(Kick)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [25, 4000]   # body + beater click
+
+  - name: "filter_snare"
+    type: "filter"
+    input_dir: "instrumental_multistem_drums"
+    filename_filter: "(Snare)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [120, 14000] # body + snap; trims sub and extreme highs
+
+  - name: "filter_toms"
+    type: "filter"
+    input_dir: "instrumental_multistem_drums"
+    filename_filter: "(Toms)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [50, 10000]
+
+  - name: "filter_hihat"
+    type: "filter"
+    input_dir: "instrumental_multistem_drums"
+    filename_filter: "(Hihat)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [200, 16000]       
+
+  - name: "filter_ride"
+    type: "filter"
+    input_dir: "instrumental_multistem_drums"
+    filename_filter: "(Ride)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [200, 16000]
+
+  - name: "filter_crash"
+    type: "filter"
+    input_dir: "instrumental_multistem_drums"
+    filename_filter: "(Crash)"
+    output_dir: "instrumental_multistem_filtered"
+    bands:
+      - [200, 16000]        
+
   - name: "bass_ensemble"
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Bass)"
     output_dir: "ensemble"
     output_name: "Ensemble (Bass).wav"    
@@ -158,7 +264,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Drums)"
     output_dir: "ensemble"
     output_name: "Ensemble (Drums).wav"    
@@ -167,7 +273,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Kick)"
     output_dir: "ensemble"
     output_name: "Ensemble (Kick).wav"    
@@ -176,7 +282,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Snare)"
     output_dir: "ensemble"
     output_name: "Ensemble (Snare).wav"    
@@ -185,7 +291,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Toms)"
     output_dir: "ensemble"
     output_name: "Ensemble (Toms).wav"
@@ -194,7 +300,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Hihat)"
     output_dir: "ensemble"
     output_name: "Ensemble (Hihat).wav"    
@@ -203,7 +309,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Ride)"
     output_dir: "ensemble"
     output_name: "Ensemble (Ride).wav"
@@ -212,7 +318,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Crash)"
     output_dir: "ensemble"
     output_name: "Ensemble (Crash).wav"
@@ -221,7 +327,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Guitar)"
     output_dir: "ensemble"
     output_name: "Ensemble (Guitar).wav"
@@ -230,7 +336,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Piano)"
     output_dir: "ensemble"
     output_name: "Ensemble (Piano).wav"
@@ -239,7 +345,7 @@ stages:
     type: "ensemble"
     mode: "instrumental"
     combine: "median"
-    input_dir: "instrumental_multistem"
+    input_dir: "instrumental_multistem_filtered"
     filename_filter: "(Other)"
     output_dir: "ensemble"
     output_name: "Ensemble (Other).wav"
@@ -264,7 +370,7 @@ stages:
     models:
       - name: "UVR-DeNoise"
         model_file: "UVR-DeNoise.pth"
-        vr_params: {"batch_size": 4, "window_size": 320, "aggression": 5, "enable_tta": True, "enable_post_process": False, "post_process_threshold": 0.2, "high_end_process": False}
+        vr_params: {"batch_size": 4, "window_size": 320, "aggression": 3, "enable_tta": True, "enable_post_process": False, "post_process_threshold": 0.2, "high_end_process": False}
         output_single_stem: "no noise"
         output_names: 
           "no noise": "Denoised"    
