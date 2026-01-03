@@ -5,8 +5,10 @@ import argparse
 from pathlib import Path
 from typing import Any, Dict, List
 import shutil
+import time
 
 import yaml
+import requests
 
 from audio_separator.separator import Separator
 from stem_ensemble import build_vocals_ensemble, build_instrumental_ensemble
@@ -123,7 +125,7 @@ def rename_outputs(generated: List[Path], target_dir: Path, input_stem: str, mod
     return renamed
 
 
-def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Path) -> List[Path]:
+def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Path, model_dir: Path) -> List[Path]:
     stage_type = stage_cfg.get("type", "separate").lower()
     inputs = collect_inputs(stage_cfg, mix_path, base_output)
     if not inputs:
@@ -138,10 +140,11 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
         return run_filter_stage(stage_cfg, out_dir, inputs)
     if stage_type == "midi":
         return run_midi_stage(stage_cfg, out_dir, inputs)
+    if stage_type == "mvsep":
+        return run_mvsep_stage(stage_cfg, global_cfg, out_dir, inputs)
 
     # separate
     all_outputs: List[Path] = []
-    model_dir = resolve_path(Path(), global_cfg.get("model_file_dir") or "") or Path()
     work_root = out_dir / "_work"
 
     for model_cfg in stage_cfg.get("models", []):
@@ -165,6 +168,164 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
         leftovers = [p for p in work_root.rglob("*") if p.is_file()]
         if leftovers:
             print(f"[error] Work folder not empty, removing leftover files: {[str(p) for p in leftovers]}")
+        shutil.rmtree(work_root, ignore_errors=True)
+    return all_outputs
+
+
+def _get_mvsep_key(stage_cfg: dict, global_cfg: dict) -> str | None:
+    return stage_cfg.get("mvsep_api_key") or global_cfg.get("mvsep_api_key")
+
+
+def _mvsep_create_separation(api_key: str, audio_path: Path, sep_type: int, add_opt1: int | None, add_opt2: int | None) -> str | None:
+    print(
+        f"[mvsep] create request: file='{audio_path.name}', sep_type={sep_type}, "
+        f"add_opt1={add_opt1}, add_opt2={add_opt2}"
+    )
+    files = {
+        "audiofile": audio_path.open("rb"),
+        "api_token": (None, api_key),
+        "sep_type": (None, str(sep_type)),
+        "add_opt1": (None, "" if add_opt1 is None else str(add_opt1)),
+        "add_opt2": (None, "" if add_opt2 is None else str(add_opt2)),
+        "output_format": (None, "1"),
+        "is_demo": (None, "0"),
+    }
+    try:
+        response = requests.post("https://mvsep.com/api/separation/create", files=files, timeout=60)
+    finally:
+        files["audiofile"].close()
+
+    if response.status_code != 200:
+        print(f"[error] MVSEP create failed for {audio_path.name}: {response.status_code}")
+        return None
+
+    try:
+        parsed = response.json()
+        return parsed["data"]["hash"]
+    except Exception as exc:
+        print(f"[error] MVSEP create parse failed for {audio_path.name}: {exc}")
+        return None
+
+
+def _mvsep_wait_for_files(hash_id: str, poll_interval: float, timeout_seconds: float) -> list[dict] | None:
+    start = time.time()
+    while True:
+        print(f"[mvsep] status request: hash={hash_id}")
+        response = requests.get("https://mvsep.com/api/separation/get", params={"hash": hash_id}, timeout=60)
+        if response.status_code != 200:
+            print(f"[error] MVSEP status failed for hash {hash_id}: {response.status_code}")
+            return None
+        try:
+            data = response.json()
+        except Exception as exc:
+            print(f"[error] MVSEP status parse failed for hash {hash_id}: {exc}")
+            return None
+
+        if not data.get("success"):
+            print(f"[error] MVSEP reported failure for hash {hash_id}.")
+            return None
+
+        files = (data.get("data") or {}).get("files")
+        if files:
+            return files
+
+        if time.time() - start > timeout_seconds:
+            print(f"[error] MVSEP timeout waiting for hash {hash_id}.")
+            return None
+        time.sleep(poll_interval)
+
+
+def _mvsep_filter_files(files: list[dict], output_single_stem: str | None, output_names: dict | None) -> list[dict]:
+    if not output_single_stem:
+        return files
+    desired = str(output_single_stem).strip().lower()
+    if not desired:
+        return files
+    filtered: list[dict] = []
+    for file_info in files:
+        filename = str(file_info.get("download") or file_info.get("name") or "").lower()
+        if not filename:
+            continue
+        if desired in filename:
+            filtered.append(file_info)
+            continue
+        if output_names:
+            for key, value in output_names.items():
+                if not key or not value:
+                    continue
+                if key.lower() in filename and str(value).lower() == desired:
+                    filtered.append(file_info)
+                    break
+    return filtered
+
+
+def _mvsep_download_files(files: list[dict], dest_dir: Path) -> list[Path]:
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    downloaded: list[Path] = []
+    for file_info in files:
+        url = str(file_info.get("url", "")).replace("\\/", "/")
+        filename = file_info.get("download") or "mvsep_output.wav"
+        if not url:
+            continue
+        print(f"[mvsep] download request: file='{filename}'")
+        response = requests.get(url, timeout=120)
+        if response.status_code != 200:
+            print(f"[error] MVSEP download failed for {filename}: {response.status_code}")
+            continue
+        out_path = dest_dir / filename
+        out_path.write_bytes(response.content)
+        downloaded.append(out_path)
+    return downloaded
+
+
+def run_mvsep_stage(stage_cfg: dict, global_cfg: dict, out_dir: Path, inputs: List[Path]) -> List[Path]:
+    api_key = _get_mvsep_key(stage_cfg, global_cfg)
+    if not api_key:
+        print(f"[{stage_cfg.get('name','?')}] No mvsep_api_key provided, skipping.")
+        return []
+
+    poll_interval = float(stage_cfg.get("poll_interval_seconds") or 5.0)
+    timeout_seconds = float(stage_cfg.get("timeout_seconds") or 1800.0)
+
+    all_outputs: List[Path] = []
+    work_root = out_dir / "_work"
+
+    for model_cfg in stage_cfg.get("models", []):
+        friendly = model_cfg.get("name") or f"mvsep_{model_cfg.get('sep_type')}"
+        output_names = model_cfg.get("output_names") or stage_cfg.get("output_names")
+        output_single_stem = stage_cfg.get("output_single_stem")
+        if model_cfg.get("output_single_stem") is not None:
+            output_single_stem = model_cfg.get("output_single_stem")
+        sep_type = model_cfg.get("sep_type")
+        if sep_type is None:
+            print(f"[error] MVSEP model '{friendly}' missing sep_type, skipping.")
+            continue
+        add_opt1 = model_cfg.get("add_opt1")
+        add_opt2 = model_cfg.get("add_opt2")
+        model_out_dir = ensure_dir(work_root / friendly)
+
+        for audio_file in inputs:
+            hash_id = _mvsep_create_separation(api_key, audio_file, int(sep_type), add_opt1, add_opt2)
+            if not hash_id:
+                continue
+            files = _mvsep_wait_for_files(hash_id, poll_interval, timeout_seconds)
+            if not files:
+                continue
+            files = _mvsep_filter_files(files, output_single_stem, output_names)
+            if not files:
+                print(f"[warn] No MVSEP outputs matched output_single_stem='{output_single_stem}' for model '{friendly}' on '{audio_file.name}'.")
+                continue
+            downloaded = _mvsep_download_files(files, model_out_dir)
+            if not downloaded:
+                print(f"[warn] No MVSEP outputs for model '{friendly}' on '{audio_file.name}'.")
+                continue
+            renamed = rename_outputs(downloaded, out_dir, audio_file.stem, friendly, output_names)
+            all_outputs.extend(renamed)
+
+    if work_root.exists():
+        leftovers = [p for p in work_root.rglob("*") if p.is_file()]
+        if leftovers:
+            print(f"[error] MVSEP work folder not empty, removing leftover files: {[str(p) for p in leftovers]}")
         shutil.rmtree(work_root, ignore_errors=True)
     return all_outputs
 
@@ -287,16 +448,18 @@ def main() -> None:
     ap.add_argument("audio_file", help="Path to input audio file.")
     args = ap.parse_args()
 
-    cfg = load_config(Path(args.config))
+    config_path = Path(args.config).resolve()
+    cfg = load_config(config_path)
     global_cfg = cfg.get("global_config") or {}
     stages = cfg.get("stages") or []
 
     mix_path = Path(args.audio_file).resolve()
     base_output = resolve_path(Path(), global_cfg.get("output_dir") or "./stems") or Path("./stems").resolve()
     ensure_dir(base_output)
+    model_dir = resolve_path(config_path.parent, global_cfg.get("model_file_dir") or "") or Path()
 
     for stage in stages:
-        run_stage(stage, global_cfg, mix_path, base_output)
+        run_stage(stage, global_cfg, mix_path, base_output, model_dir)
 
     print("Pipeline complete.")
     print(f"Outputs in: {base_output}")
