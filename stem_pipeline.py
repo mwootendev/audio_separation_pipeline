@@ -56,6 +56,55 @@ def ensure_dir(p: Path) -> Path:
     return p
 
 
+
+def _resample_inputs(inputs: List[Path], target_sr: int, work_dir: Path) -> List[Path]:
+    import numpy as np
+    import soundfile as sf
+    from math import gcd
+    from scipy.signal import resample_poly
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    resampled: List[Path] = []
+    for idx, wav in enumerate(inputs):
+        audio, sr = sf.read(str(wav), always_2d=True)
+        if sr == target_sr:
+            resampled.append(wav)
+            continue
+        g = gcd(sr, target_sr)
+        up = target_sr // g
+        down = sr // g
+        y = resample_poly(audio, up, down, axis=0).astype(np.float32)
+        out_path = work_dir / f"{wav.stem}_sr{target_sr}_{idx}{wav.suffix}"
+        sf.write(str(out_path), y, target_sr)
+        resampled.append(out_path)
+    return resampled
+
+
+def _clean_stage_inputs(stage_cfg: dict, base_output: Path, out_dir: Path, inputs: List[Path]) -> None:
+    if not stage_cfg.get("clean"):
+        return
+    inp = stage_cfg.get("input_dir")
+    if not inp or str(inp).upper() == "MIX":
+        return
+    inp_dir = resolve_path(base_output, inp)
+    if not inp_dir or not inp_dir.exists():
+        return
+    base_dir = inp_dir.resolve()
+    for p in inputs:
+        if not p.is_file():
+            continue
+        try:
+            p.resolve().relative_to(base_dir)
+        except Exception:
+            continue
+        p.unlink(missing_ok=True)
+    if stage_cfg.get("filename_filter"):
+        return
+    if base_dir == out_dir.resolve():
+        return
+    shutil.rmtree(inp_dir, ignore_errors=True)
+
+
 def _clean_dict(d: dict | None) -> dict | None:
     """Remove keys with None values, recursively for dicts/lists."""
     if d is None:
@@ -134,42 +183,57 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
 
     out_dir = ensure_dir(resolve_path(base_output, stage_cfg.get("output_dir") or "."))
 
+    inputs_for_stage = inputs
+    resample_dir: Path | None = None
+    if stage_type in ["ensemble", "filter"]:
+        target_sr = global_cfg.get("sample_rate")
+        if target_sr:
+            resample_dir = out_dir / "_work" / "resample"
+            inputs_for_stage = _resample_inputs(inputs, int(target_sr), resample_dir)
+
+    outputs: List[Path] = []
     if stage_type == "ensemble":
-        return run_ensemble_stage(stage_cfg, out_dir, inputs)
-    if stage_type == "filter":
-        return run_filter_stage(stage_cfg, out_dir, inputs)
-    if stage_type == "midi":
-        return run_midi_stage(stage_cfg, out_dir, inputs)
-    if stage_type == "mvsep":
-        return run_mvsep_stage(stage_cfg, global_cfg, out_dir, inputs)
+        outputs = run_ensemble_stage(stage_cfg, out_dir, inputs_for_stage)
+    elif stage_type == "filter":
+        outputs = run_filter_stage(stage_cfg, out_dir, inputs_for_stage)
+    elif stage_type == "midi":
+        outputs = run_midi_stage(stage_cfg, out_dir, inputs)
+    elif stage_type == "mvsep":
+        outputs = run_mvsep_stage(stage_cfg, global_cfg, out_dir, inputs)
+    else:
+        # separate
+        all_outputs: List[Path] = []
+        work_root = out_dir / "_work"
 
-    # separate
-    all_outputs: List[Path] = []
-    work_root = out_dir / "_work"
+        for model_cfg in stage_cfg.get("models", []):
+            friendly = model_cfg.get("name") or Path(model_cfg["model_file"]).stem
+            output_names = model_cfg.get("output_names") or stage_cfg.get("output_names")
+            model_out_dir = ensure_dir(work_root / friendly)
+            sep = config_separator(model_cfg, global_cfg, stage_cfg, model_dir, model_out_dir)
+            for audio_file in inputs:
+                try:
+                    generated = sep.separate(str(audio_file))
+                except Exception as exc:
+                    print(f"[error] Separation failed for model '{friendly}' on '{audio_file.name}': {exc}")
+                    generated = []
+                generated_paths = [Path(p) if Path(p).is_absolute() else model_out_dir / p for p in generated]
+                if not generated_paths:
+                    print(f"[warn] No outputs generated for model '{friendly}' on '{audio_file.name}'.")
+                renamed = rename_outputs(generated_paths, out_dir, audio_file.stem, friendly, output_names)
+                all_outputs.extend(renamed)
 
-    for model_cfg in stage_cfg.get("models", []):
-        friendly = model_cfg.get("name") or Path(model_cfg["model_file"]).stem
-        output_names = model_cfg.get("output_names") or stage_cfg.get("output_names")
-        model_out_dir = ensure_dir(work_root / friendly)
-        sep = config_separator(model_cfg, global_cfg, stage_cfg, model_dir, model_out_dir)
-        for audio_file in inputs:
-            try:
-                generated = sep.separate(str(audio_file))
-            except Exception as exc:
-                print(f"[error] Separation failed for model '{friendly}' on '{audio_file.name}': {exc}")
-                generated = []
-            generated_paths = [Path(p) if Path(p).is_absolute() else model_out_dir / p for p in generated]
-            if not generated_paths:
-                print(f"[warn] No outputs generated for model '{friendly}' on '{audio_file.name}'.")
-            renamed = rename_outputs(generated_paths, out_dir, audio_file.stem, friendly, output_names)
-            all_outputs.extend(renamed)
+        if work_root.exists():
+            leftovers = [p for p in work_root.rglob("*") if p.is_file()]
+            if leftovers:
+                print(f"[error] Work folder not empty, removing leftover files: {[str(p) for p in leftovers]}")
+            shutil.rmtree(work_root, ignore_errors=True)
+        outputs = all_outputs
 
-    if work_root.exists():
-        leftovers = [p for p in work_root.rglob("*") if p.is_file()]
-        if leftovers:
-            print(f"[error] Work folder not empty, removing leftover files: {[str(p) for p in leftovers]}")
-        shutil.rmtree(work_root, ignore_errors=True)
-    return all_outputs
+    if resample_dir and resample_dir.exists():
+        shutil.rmtree(resample_dir, ignore_errors=True)
+
+    _clean_stage_inputs(stage_cfg, base_output, out_dir, inputs)
+    return outputs
 
 
 def _get_mvsep_key(stage_cfg: dict, global_cfg: dict) -> str | None:
