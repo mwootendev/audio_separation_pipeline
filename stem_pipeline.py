@@ -57,11 +57,20 @@ def ensure_dir(p: Path) -> Path:
 
 
 
-def _resample_inputs(inputs: List[Path], target_sr: int, work_dir: Path) -> List[Path]:
-    import numpy as np
-    import soundfile as sf
+
+def _resample_audio(audio: "np.ndarray", sr: int, target_sr: int) -> "np.ndarray":
     from math import gcd
     from scipy.signal import resample_poly
+
+    if sr == target_sr:
+        return audio
+    g = gcd(sr, target_sr)
+    up = target_sr // g
+    down = sr // g
+    return resample_poly(audio, up, down, axis=0).astype("float32")
+
+def _resample_inputs(inputs: List[Path], target_sr: int, work_dir: Path) -> List[Path]:
+    import soundfile as sf
 
     work_dir.mkdir(parents=True, exist_ok=True)
     resampled: List[Path] = []
@@ -70,15 +79,11 @@ def _resample_inputs(inputs: List[Path], target_sr: int, work_dir: Path) -> List
         if sr == target_sr:
             resampled.append(wav)
             continue
-        g = gcd(sr, target_sr)
-        up = target_sr // g
-        down = sr // g
-        y = resample_poly(audio, up, down, axis=0).astype(np.float32)
+        y = _resample_audio(audio, sr, target_sr)
         out_path = work_dir / f"{wav.stem}_sr{target_sr}_{idx}{wav.suffix}"
         sf.write(str(out_path), y, target_sr)
         resampled.append(out_path)
     return resampled
-
 
 def _clean_stage_inputs(stage_cfg: dict, base_output: Path, out_dir: Path, inputs: List[Path]) -> None:
     if not stage_cfg.get("clean"):
@@ -121,6 +126,38 @@ def _clean_dict(d: dict | None) -> dict | None:
             v = [_clean_dict(x) if isinstance(x, dict) else x for x in v]
         cleaned[k] = v
     return cleaned
+
+
+def _resolve_mask_ref(stage_cfg: dict, base_output: Path, mix_path: Path) -> Path | None:
+    mask_ref = stage_cfg.get("mask_ref")
+    if not mask_ref:
+        return None
+    if str(mask_ref).upper() == "MIX":
+        return mix_path
+    return resolve_path(base_output, str(mask_ref))
+
+
+def _build_weight_curve(freqs: "np.ndarray", weights: list | None) -> "np.ndarray":
+    import numpy as np
+
+    curve = np.ones_like(freqs, dtype=np.float32)
+    if not weights:
+        return curve
+    for band in weights:
+        if not isinstance(band, (list, tuple)) or len(band) < 3:
+            continue
+        lo, hi, weight = band[:3]
+        try:
+            lo_hz = float(lo)
+            hi_hz = float(hi)
+            w = float(weight)
+        except Exception:
+            continue
+        if hi_hz <= lo_hz:
+            continue
+        idx = (freqs >= lo_hz) & (freqs <= hi_hz)
+        curve[idx] *= w
+    return np.clip(curve, 0.0, 1.0)
 
 
 def config_separator(model_cfg: dict, global_cfg: dict, stage_cfg: dict, model_dir: Path, out_dir: Path) -> Separator:
@@ -185,7 +222,8 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
 
     inputs_for_stage = inputs
     resample_dir: Path | None = None
-    if stage_type in ["ensemble", "filter"]:
+    target_sr = None
+    if stage_type in ["ensemble", "filter", "spectral_mask"]:
         target_sr = global_cfg.get("sample_rate")
         if target_sr:
             resample_dir = out_dir / "_work" / "resample"
@@ -196,6 +234,8 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
         outputs = run_ensemble_stage(stage_cfg, out_dir, inputs_for_stage)
     elif stage_type == "filter":
         outputs = run_filter_stage(stage_cfg, out_dir, inputs_for_stage)
+    elif stage_type == "spectral_mask":
+        outputs = run_spectral_mask_stage(stage_cfg, out_dir, inputs_for_stage, base_output, mix_path, target_sr)
     elif stage_type == "midi":
         outputs = run_midi_stage(stage_cfg, out_dir, inputs)
     elif stage_type == "mvsep":
@@ -448,6 +488,119 @@ def run_filter_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> List
         out_path = out_dir / f"{wav.stem} ({stage_cfg.get('name','filter')}).wav"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         sf.write(str(out_path), y, sr)
+        outputs.append(out_path)
+    return outputs
+
+
+def run_spectral_mask_stage(
+    stage_cfg: dict,
+    out_dir: Path,
+    inputs: List[Path],
+    base_output: Path,
+    mix_path: Path,
+    target_sr: int | None,
+) -> List[Path]:
+    import numpy as np
+    import soundfile as sf
+    from scipy.signal import istft, stft, wiener
+
+    mask_ref = _resolve_mask_ref(stage_cfg, base_output, mix_path)
+    if not mask_ref or not mask_ref.exists():
+        print(f"[{stage_cfg.get('name','?')}] mask_ref not found, skipping.")
+        return []
+
+    fft_size = int(stage_cfg.get("fft_size") or 2048)
+    win_length = int(stage_cfg.get("win_length") or fft_size)
+    hop_length = int(stage_cfg.get("hop_length") or (win_length // 4))
+    weights = stage_cfg.get("weights") or []
+
+    soft_cfg = stage_cfg.get("soft_mask") or {}
+    soft_enabled = bool(soft_cfg.get("enabled"))
+    soft_strength = float(soft_cfg.get("strength") or 0.8)
+
+    wiener_cfg = stage_cfg.get("wiener") or {}
+    wiener_enabled = bool(wiener_cfg.get("enabled"))
+    wiener_iterations = int(wiener_cfg.get("iterations") or 1)
+    wiener_strength = float(wiener_cfg.get("strength") or 0.5)
+    wiener_mysize = wiener_cfg.get("mysize") or (5, 5)
+
+    outputs: List[Path] = []
+    for wav in inputs:
+        audio, sr = sf.read(str(wav), always_2d=True)
+        ref_audio, ref_sr = sf.read(str(mask_ref), always_2d=True)
+        if target_sr and sr != target_sr:
+            audio = _resample_audio(audio, sr, target_sr)
+            sr = target_sr
+        if ref_sr != sr:
+            ref_audio = _resample_audio(ref_audio, ref_sr, sr)
+        min_len = min(len(audio), len(ref_audio))
+        if min_len <= 0:
+            continue
+        audio = audio[:min_len]
+        ref_audio = ref_audio[:min_len]
+
+        channels = audio.shape[1]
+        ref_channels = ref_audio.shape[1]
+        out_channels = []
+        for ch in range(channels):
+            ref_ch = ref_audio[:, min(ch, ref_channels - 1)]
+            f, _, z_in = stft(
+                audio[:, ch],
+                fs=sr,
+                window="hann",
+                nperseg=win_length,
+                noverlap=win_length - hop_length,
+                nfft=fft_size,
+                boundary="zeros",
+                padded=True,
+            )
+            _, _, z_ref = stft(
+                ref_ch,
+                fs=sr,
+                window="hann",
+                nperseg=win_length,
+                noverlap=win_length - hop_length,
+                nfft=fft_size,
+                boundary="zeros",
+                padded=True,
+            )
+            mag_in = np.abs(z_in)
+            mag_ref = np.abs(z_ref)
+            mask = mag_in / (mag_in + mag_ref + 1e-8)
+            curve = _build_weight_curve(f, weights)
+            mask = np.clip(mask * curve[:, None], 0.0, 1.0)
+
+            if wiener_enabled:
+                if np.var(mask) > 1e-12:
+                    for _ in range(max(1, wiener_iterations)):
+                        with np.errstate(divide="ignore", invalid="ignore"):
+                            smoothed = wiener(mask, mysize=wiener_mysize)
+                        smoothed = np.nan_to_num(smoothed, nan=0.0, posinf=1.0, neginf=0.0)
+                        mask = (1.0 - wiener_strength) * mask + wiener_strength * smoothed
+                    mask = np.clip(mask, 0.0, 1.0)
+
+            if soft_enabled:
+                strength = min(1.0, max(0.01, soft_strength))
+                mask = np.clip(mask, 0.0, 1.0) ** strength
+
+            z_out = z_in * mask
+            _, out = istft(
+                z_out,
+                fs=sr,
+                window="hann",
+                nperseg=win_length,
+                noverlap=win_length - hop_length,
+                nfft=fft_size,
+                input_onesided=True,
+                boundary=True,
+            )
+            out_channels.append(out)
+
+        out_audio = np.stack(out_channels, axis=1)
+        out_audio = out_audio[:min_len]
+        out_path = out_dir / f"{wav.stem} ({stage_cfg.get('name','spectral_mask')}).wav"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(str(out_path), out_audio, sr)
         outputs.append(out_path)
     return outputs
 
