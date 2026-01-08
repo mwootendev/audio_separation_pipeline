@@ -437,20 +437,50 @@ def run_mvsep_stage(stage_cfg: dict, global_cfg: dict, out_dir: Path, inputs: Li
 def run_ensemble_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> List[Path]:
     mode = stage_cfg.get("mode", "vocals").lower()
     top_k = stage_cfg.get("top_k")
-    combine = stage_cfg.get("combine_type") or stage_cfg.get("combine")
-    out_path = out_dir / (stage_cfg.get("output_name") or f"{mode}_ensemble.wav")
+    combine_raw = stage_cfg.get("combine_type") or stage_cfg.get("combine")
+    output_name = stage_cfg.get("output_name") or f"{mode}_ensemble.wav"
+    if isinstance(combine_raw, (list, tuple)):
+        combine_values = [str(v).strip() for v in combine_raw if v is not None and str(v).strip()]
+    elif combine_raw is None:
+        combine_values = []
+    else:
+        combine_values = [str(combine_raw).strip()] if str(combine_raw).strip() else []
+    if not combine_values:
+        combine_values = [None]
+    multi_combine = len(combine_values) > 1
+    outputs: List[Path] = []
     if mode == "vocals":
         candidates = [p for p in inputs if any(k in p.name.lower() for k in VOCAL_KEYWORDS)]
         scores = {p: 0.0 for p in candidates}
-        build_vocals_ensemble(candidates, scores, out_path, top_k=min(top_k or len(candidates), len(candidates)), combine=(combine or "avg"))
-        print(f"[{stage_cfg.get('name','?')}] Vocals ensemble -> {out_path}")
-        return [out_path]
+        for combine in combine_values:
+            if multi_combine and combine is not None:
+                prefix = f"{combine.capitalize()} "
+                out_path = out_dir / f"{prefix}{output_name}"
+            else:
+                out_path = out_dir / output_name
+            build_vocals_ensemble(
+                candidates,
+                scores,
+                out_path,
+                top_k=min(top_k or len(candidates), len(candidates)),
+                combine=(combine or "avg"),
+            )
+            print(f"[{stage_cfg.get('name','?')}] Vocals ensemble -> {out_path}")
+            outputs.append(out_path)
+        return outputs
     if mode == "instrumental":
         candidates = [p for p in inputs if any(k in p.name.lower() for k in INSTRUMENTAL_KEYWORDS)]
-        combine_use = (combine or "median").lower()
-        build_instrumental_ensemble(candidates, out_path, vocals_path=None, combine=combine_use)
-        print(f"[{stage_cfg.get('name','?')}] Instrumental ensemble -> {out_path}")
-        return [out_path]
+        for combine in combine_values:
+            if multi_combine and combine is not None:
+                prefix = f"{combine.capitalize()} "
+                out_path = out_dir / f"{prefix}{output_name}"
+            else:
+                out_path = out_dir / output_name
+            combine_use = (combine or "median").lower()
+            build_instrumental_ensemble(candidates, out_path, vocals_path=None, combine=combine_use)
+            print(f"[{stage_cfg.get('name','?')}] Instrumental ensemble -> {out_path}")
+            outputs.append(out_path)
+        return outputs
     print(f"[{stage_cfg.get('name','?')}] Unknown ensemble mode '{mode}', skipping.")
     return []
 
