@@ -188,8 +188,34 @@ def config_separator(model_cfg: dict, global_cfg: dict, stage_cfg: dict, model_d
     return sep
 
 
-def rename_outputs(generated: List[Path], target_dir: Path, input_stem: str, model_name: str, output_names: dict | None) -> List[Path]:
+def _strip_filename_filters(input_stem: str, filename_filters: list[str] | None) -> str:
+    if not filename_filters:
+        return input_stem
+    lowered = input_stem.lower()
+    for filt in filename_filters:
+        if not filt:
+            continue
+        needle = filt.lower()
+        while True:
+            idx = lowered.find(needle)
+            if idx < 0:
+                break
+            input_stem = input_stem[:idx] + input_stem[idx + len(filt):]
+            lowered = input_stem.lower()
+    return " ".join(input_stem.split())
+
+
+def rename_outputs(
+    generated: List[Path],
+    target_dir: Path,
+    input_stem: str,
+    model_name: str,
+    output_names: dict | None,
+    filename_filters: list[str] | None = None,
+) -> List[Path]:
     renamed: List[Path] = []
+    if output_names and filename_filters:
+        input_stem = _strip_filename_filters(input_stem, filename_filters)
     for src in generated:
         src_path = Path(src)
         if not src_path.is_absolute():
@@ -259,7 +285,17 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
                 generated_paths = [Path(p) if Path(p).is_absolute() else model_out_dir / p for p in generated]
                 if not generated_paths:
                     print(f"[warn] No outputs generated for model '{friendly}' on '{audio_file.name}'.")
-                renamed = rename_outputs(generated_paths, out_dir, audio_file.stem, friendly, output_names)
+                filename_filters = stage_cfg.get("filename_filter")
+                if isinstance(filename_filters, str):
+                    filename_filters = [filename_filters]
+                renamed = rename_outputs(
+                    generated_paths,
+                    out_dir,
+                    audio_file.stem,
+                    friendly,
+                    output_names,
+                    filename_filters=filename_filters,
+                )
                 all_outputs.extend(renamed)
 
         if work_root.exists():
@@ -423,7 +459,17 @@ def run_mvsep_stage(stage_cfg: dict, global_cfg: dict, out_dir: Path, inputs: Li
             if not downloaded:
                 print(f"[warn] No MVSEP outputs for model '{friendly}' on '{audio_file.name}'.")
                 continue
-            renamed = rename_outputs(downloaded, out_dir, audio_file.stem, friendly, output_names)
+            filename_filters = stage_cfg.get("filename_filter")
+            if isinstance(filename_filters, str):
+                filename_filters = [filename_filters]
+            renamed = rename_outputs(
+                downloaded,
+                out_dir,
+                audio_file.stem,
+                friendly,
+                output_names,
+                filename_filters=filename_filters,
+            )
             all_outputs.extend(renamed)
 
     if work_root.exists():
