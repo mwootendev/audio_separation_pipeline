@@ -1,0 +1,435 @@
+global_config:
+  model_file_dir: "./models_cache"
+  output_dir: "./stems_out"
+  output_format: "wav"
+  sample_rate: 44100
+  use_autocast: true
+  mvsep_api_key: "MVSEP_API_KEY_HERE"
+stages:
+  - name: "vocals_fullness"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "vocals"
+    models:
+      - name: "Voc-BSR-revive3e"
+        model_file: "bs_roformer_vocals_revive_v3e_unwa.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          Vocals: "Vocals"
+          other: "Instrumental"      
+      - name: "MBR-big-beta5e"
+        model_file: "melband_roformer_big_beta5e.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+      - name: "MBR-big-beta6x"
+        model_file: "melband_roformer_big_beta6x.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"       
+      - name: "BS-Roformer-SW"
+        model_file: "BS-Roformer-SW.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"
+      - name: "MBR-Gabox-Voc-V7beta3"
+        model_file: "melband_roformer_voc_fv7_beta3_gabox.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"
+      - name: "MBR-Kim-Voc-1"
+        model_file: "Kim_Vocal_1.onnx"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"
+      - name: "MBR-Kim-Voc-2"
+        model_file: "Kim_Vocal_2.onnx"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"
+      - name: "BSR-ViperX-1297"
+        model_file: "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"
+      - name: "MBR-Kim-FT-unwa"
+        model_file: "mel_band_roformer_kim_ft_unwa.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"
+      - name: "MBR-Kim-SYHFT-V3"
+        model_file: "MelBandRoformerSYHFTV3Epsilon.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"
+      - name: "MBR-Kim-Big-SYHFT-V1"
+        model_file: "MelBandRoformerBigSYHFTV1.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"
+      - name: "UVR-MDX-438"
+        model_file: "UVR-MDX-NET_Main_438.onnx"
+        output_single_stem: "Vocals"
+        output_names: 
+          "vocals": "Vocals"    
+
+  - name: "mvsep_vocals"
+    type: "mvsep"
+    input_dir: "MIX"    
+    output_dir: "vocals"
+    models:
+      - name: "MVSEP-BS-Roformer-SW"
+        sep_type: 63
+        output_names: 
+          vocals: "Vocals"
+      - name: "MVSEP-BSR-voc"
+        sep_type: 40
+        add_opt1: 81
+        output_names: 
+          vocals: "Vocals"        
+      - name: "MVSEP-MBR-voc"
+        sep_type: 48
+        add_opt1: 4
+        output_names: 
+          vocals: "Vocals"
+      - name: "MVSEP-SCNet-voc"
+        output_single_stem: "Vocals"
+        sep_type: 46
+        add_opt1: 5
+        output_names: 
+          vocals: "Vocals"              
+      - name: "MVSEP-MBR-becruily-hf-voc"
+        sep_type: 48
+        add_opt1: 8
+        output_names: 
+          vocals: "Vocals"        
+
+  - name: "vocals_filtered"
+    type: "filter"
+    input_dir: "vocals"
+    output_dir: "vocals_filtered"
+    filename_filter: "(Vocals)"
+    bands:
+      - [100, 16000]
+
+  - name: "vocals_ensemble"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_filtered"
+    output_dir: "vocals_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Ensemble (Vocals).wav"    
+
+  - name: "vocals_ensemble_t5"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_filtered"
+    output_dir: "vocals_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Ensemble T5 (Vocals).wav"
+    top_k: 5  
+ 
+  - name: "vocals_karaoke"
+    type: "separate"
+    input_dir: "vocals_filtered"
+    output_dir: "vocals_karaoke"
+    filename_filter: "(Vocals)"
+    models: &karaoke_models
+      - name: "MBR-Karaoke-Becruily"
+        model_file: "mel_band_roformer_karaoke_becruily.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "Vocals": "Vocals (Karaoke)"
+      - name: "MBR-Karaoke-Aufr33-ViperX"
+        model_file: "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "Vocals": "Vocals (Karaoke)"
+      - name: "MBR-Karaoke-Gabox"
+        model_file: "mel_band_roformer_karaoke_gabox.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "Vocals": "Vocals (Karaoke)"
+      - name: "MBR-Karaoke-Gabox-V2"
+        model_file: "mel_band_roformer_karaoke_gabox_v2.ckpt"
+        output_single_stem: "Vocals"
+        output_names: 
+          "Vocals": "Vocals (Karaoke)"    
+      - name: "UVR-Karaoke-5HP"
+        model_file: "5_HP-Karaoke-UVR.pth"
+        output_single_stem: "Vocals"
+        output_names: 
+          "Vocals": "Vocals (Karaoke)"
+      - name: "UVR-Karaoke-6HP"
+        model_file: "6_HP-Karaoke-UVR.pth"
+        output_single_stem: "Vocals"
+        output_names: 
+          "Vocals": "Vocals (Karaoke)"
+      - name: "UVR-MDXNET-KARA"
+        model_file: "UVR_MDXNET_KARA.onnx"
+        output_single_stem: "Vocals"
+        output_names: 
+          "Vocals": "Vocals (Karaoke)"
+      - name: "UVR-MDXNET-KARA2"
+        model_file: "UVR_MDXNET_KARA_2.onnx"
+        output_single_stem: "Vocals"
+        output_names: 
+          "Vocals": "Vocals (Karaoke)"    
+
+  - name: "vocals_karaoke_ensemble"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_karaoke"
+    output_dir: "vocals_karaoke_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Karaoke Ensemble (Vocals).wav"    
+
+  - name: "vocals_karaoke_ensemble_t5"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_karaoke"
+    output_dir: "vocals_karaoke_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Karaoke Ensemble T5 (Vocals).wav"
+    top_k: 5  
+  
+  - name: "vocals_ensemble_karaoke"
+    type: "separate"
+    input_dir: "vocals_ensemble"
+    output_dir: "vocals_ensemble_karaoke"
+    filename_filter: "(Vocals)"
+    models: *karaoke_models
+
+  - name: "vocals_dereverb"
+    type: "separate"
+    input_dir: "vocals_filtered"
+    output_dir: "vocals_dereverb"
+    filename_filter: "(Vocals)"
+    models: &dereverb_models
+      - name: "UVR-DeEcho-DeReverb"
+        model_file: "UVR-DeEcho-DeReverb.pth"
+        output_single_stem: "no reverb"
+        output_names: 
+          "no reverb": "Vocals (Dry)"
+      - name: "MDX23C-De-Reverb-AJ"
+        model_file: "MDX23C-De-Reverb-aufr33-jarredou.ckpt"
+        output_single_stem: "dry"
+        output_names: 
+          dry: "Vocals (Dry)"
+      - name: "De-Reverb-HQ-FoxJoy"
+        model_file: "Reverb_HQ_By_FoxJoy.onnx"
+        output_single_stem: "No Reverb"
+        output_names: 
+          "No Reverb": "Vocals (Dry)"        
+
+  - name: "vocals_ensemble_dereverb"
+    type: "separate"
+    input_dir: "vocals_ensemble"
+    output_dir: "vocals_ensemble_dereverb"
+    filename_filter: "(Vocals)"
+    models: *dereverb_models
+
+  - name: "vocals_dereverb_ensemble"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_dereverb"
+    output_dir: "vocals_dereverb_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Dereverb Ensemble (Vocals).wav"
+    top_k: 5  
+
+  - name: "vocals_denoise"
+    type: "separate"
+    input_dir: "vocals_filtered"
+    output_dir: "vocals_denoise"
+    filename_filter: "(Vocals)"
+    models: &denoise_models
+      - name: "UVR-DeNoise-Lite"
+        model_file: "UVR-DeNoise-Lite.pth"
+        invert_spect: true
+        output_single_stem: "no noise"
+        output_names: 
+          "no noise": "Denoised"
+      - name: "UVR-DeNoise"
+        model_file: "UVR-DeNoise.pth"
+        invert_spect: true
+        output_single_stem: "no noise"
+        output_names: 
+          "no noise": "Denoised"
+      - name: "Denoise-MBR-Aufr33"
+        model_file: "denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt"
+        output_single_stem: "dry"
+        output_names: 
+          dry: "Denoised"
+      - name: "Denoise-MBR-Aufr33-Aggr"
+        model_file: "denoise_mel_band_roformer_aufr33_aggr_sdr_27.9768.ckpt"
+        output_single_stem: "dry"
+        output_names: 
+          dry: "Denoised"
+      - name: "MBR-Denoise-Debleed-gabox"
+        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
+        output_single_stem: "Instrumental"
+        output_names: 
+          Instrumental: "Denoised"        
+
+  - name: "vocals_ensemble_denoise"
+    type: "separate"
+    input_dir: "vocals_ensemble"
+    output_dir: "vocals_ensemble_denoise"
+    filename_filter: "(Vocals)"
+    models: *denoise_models
+
+  - name: "vocals_karaoke_denoise"
+    type: "separate"
+    input_dir: "vocals_karaoke"
+    output_dir: "vocals_karaoke_denoise"
+    filename_filter: "(Vocals)"
+    models: *denoise_models
+
+  - name: "vocals_ensemble_karaoke_denoise"
+    type: "separate"
+    input_dir: "vocals_ensemble_karaoke"
+    output_dir: "vocals_ensemble_karaoke_denoise"
+    filename_filter: "(Vocals)"
+    models: *denoise_models
+
+  - name: "vocals_karaoke_ensemble_denoise"
+    type: "separate"
+    input_dir: "vocals_karaoke_ensemble"
+    output_dir: "vocals_karaoke_ensemble_denoise"
+    filename_filter: "(Vocals)"
+    models: *denoise_models    
+
+  - name: "vocals_denoise_ensemble"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_denoise"
+    output_dir: "vocals_denoise_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Denoise Ensemble (Vocals).wav"    
+
+  - name: "vocals_denoise_ensemble_t5"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_denoise"
+    output_dir: "vocals_denoise_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Denoise Ensemble T5 (Vocals).wav"
+    top_k: 5
+
+  - name: "vocals_karaoke_denoise_ensemble"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_karaoke_denoise"
+    output_dir: "vocals_karaoke_denoise_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Karaoke Denoise Ensemble (Vocals).wav"    
+
+  - name: "vocals_karaoke_denoise_ensemble_t5"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_karaoke_denoise"
+    output_dir: "vocals_karaoke_denoise_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Karaoke Denoise Ensemble T5 (Vocals).wav"
+    top_k: 5
+
+  - name: "vocals_ensemble_karaoke_denoise_ensemble"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_ensemble_karaoke_denoise"
+    output_dir: "vocals_ensemble_karaoke_denoise_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Ensemble Karaoke Denoise Ensemble (Vocals).wav"    
+
+  - name: "vocals_ensemble_karaoke_denoise_ensemble_t5"
+    type: "ensemble"
+    mode: "vocals"
+    combine: ["max", "avg", "min", "median"]
+    input_dir: "vocals_ensemble_karaoke_denoise"
+    output_dir: "vocals_ensemble_karaoke_denoise_ensemble"
+    filename_filter: "(Vocals)"
+    output_name: "Ensemble Karaoke Denoise Ensemble T5 (Vocals).wav"
+    top_k: 5    
+
+  # - name: "vocals_debleed"
+  #   type: "separate"
+  #   input_dir: "vocals_filtered"
+  #   output_dir: "vocals_debleed"
+  #   filename_filter: "(Vocals)"
+  #   models: &debleed_models
+  #     - name: "MBR-Denoise-Debleed-gabox"
+  #       model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
+  #       output_single_stem: "Instrumental"
+  #       output_names: 
+  #         Instrumental: "Debleed"
+  #     - name: "MBR-Bleed-Suppressor-v1"
+  #       model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
+  #       output_single_stem: "Bleed"
+  #       output_names: 
+  #         Bleed: "Debleed"
+   
+  # - name: "vocals_ensemble_debleed"
+  #   type: "separate"
+  #   input_dir: "vocals_ensemble"
+  #   output_dir: "vocals_ensemble_debleed"
+  #   filename_filter: "(Vocals)"
+  #   models: *debleed_models
+
+  # - name: "vocals_debleed_ensemble"
+  #   type: "ensemble"
+  #   mode: "vocals"
+  #   combine: ["max", "avg", "min", "median"]
+  #   input_dir: "vocals_debleed"
+  #   output_dir: "vocals_debleed_ensemble"
+  #   filename_filter: "(Vocals)"
+  #   output_name: "Debleed Ensemble (Vocals).wav"
+  #   top_k: 5  
+
+  # - name: "vocals_dereverb_debleed"
+  #   type: "separate"
+  #   input_dir: "vocals_dereverb"
+  #   output_dir: "vocals_dereverb_debleed"
+  #   models: *debleed_models
+
+ # - name: "vocals_spectral_mask"
+  #   type: "spectral_mask"
+  #   input_dir: "vocals_filtered"
+  #   filename_filter: "(Vocals)"
+  #   output_dir: "masked"
+  #   mask_ref: "inst/the-angler-remastered_bs_roformer_mt_85_instrum.wav"  # or "MIX"
+  #   fft_size: 2048
+  #   hop_length: 512
+  #   win_length: 2048
+  #   soft_mask:
+  #     enabled: true
+  #     strength: 0.8
+  #   wiener:
+  #     enabled: true
+  #     iterations: 2
+  #     strength: 0.5
+  #     mysize: [5, 5]
+  #   weights:
+  #     - [20, 200, 0.6]
+  #     - [200, 2000, 1.0]
+  #     - [2000, 8000, 0.8]
+  #     - [8000, 20000, 0.4]  
+
+  # # - name: "vocals_midi"
+  # #   type: "midi"
+  # #   input_dir: "ensemble"
+  # #   output_dir: "ensemble_midi"
+  # #   filename_filter: "(Vocals)"
+  # #   engines: ["basic_pitch"]                        

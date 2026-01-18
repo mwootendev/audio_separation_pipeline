@@ -1,0 +1,176 @@
+global_config:
+  model_file_dir: "./models_cache"
+  output_dir: "./stems_out"
+  output_format: "wav"
+  sample_rate: 44100
+  use_autocast: true
+  mvsep_api_key: "MVSEP_API_KEY_HERE"
+
+stages:
+  - name: "instrumental_mix_primary"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "instrumental_raw"
+    models:
+      # - name: "UVR-Inst_HQ_5"
+      #   model_file: "UVR-MDX-NET-Inst_HQ_5.onnx"
+      #   output_single_stem: "Instrumental"
+      #   mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.75, "batch_size": 1, "enable_denoise": False}
+      #   output_names: 
+      #     Instrumental: "Instrumental"
+      # - name: "Kim-Inst"
+      #   model_file: "Kim_Inst.onnx"
+      #   output_single_stem: "instrumental"
+      #   output_names: 
+      #     instrumental: "Instrumental"
+      # - name: "MDX-NET-Inst-82"
+      #   model_file: "UVR-MDX-NET_Inst_82_beta.onnx"
+      #   output_single_stem: "Instrumental"
+      #   mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.75, "batch_size": 1, "enable_denoise": False}
+      #   output_names: 
+      #     Instrumental: "Instrumental"
+      - name: "MBR-big-beta6x"
+        model_file: "melband_roformer_big_beta6x.ckpt"
+        output_single_stem: "Other"
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+
+  - name: "mvsep_instrumental_mix"
+    type: "mvsep"
+    input_dir: "MIX"
+    output_dir: "instrumental_raw"
+    models:
+      # - name: "MVSEP-BS-Roformer-2025.07"
+      #   sep_type: 40
+      #   add_opt1: 81
+      #   output_single_stem: "other"
+      #   output_names:
+      #     instrumental: "Instrumental"
+      #     other: "Instrumental"
+      #     vocals: "Vocals"
+      - name: "MVSEP-MelBand-Becruily-Deux"
+        sep_type: 48
+        add_opt1: 11
+        output_single_stem: "other"
+        output_names:
+          instrumental: "Instrumental"
+          other: "Instrumental"
+          vocals: "Vocals"
+      - name: "MVSEP-SCNet-XL-IHF"
+        sep_type: 46
+        add_opt1: 5
+        output_single_stem: "other"
+        output_names:
+          instrumental: "Instrumental"
+          other: "Instrumental"
+          vocals: "Vocals"
+
+  - name: "instrumental_mvsep_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: ["max"]
+    input_dir: "instrumental_raw"
+    filename_filter: "(Instrumental)"
+    output_dir: "instrumental_ensemble"
+    output_name: "Ensemble (Instrumental).wav"
+    clean: True
+
+  - name: "filter_guitar"
+    type: "filter"
+    input_dir: "instrumental_ensemble"
+    filename_filter: "(Guitar)"
+    output_dir: "instrumental_ensemble"
+    bands:
+      - [70, 10000]  
+ 
+  - name: "instrumental_mix_multistem"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "instrumental"
+    models:
+      - name: "BSR-SW-GTR"
+        model_file: "BS-Roformer-SW.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}
+        invert_spect: True
+        output_single_stem: "guitar"
+        output_names: 
+          "guitar": "Guitar" 
+      - name: "HTD-6S-GTR"
+        model_file: "htdemucs_6s.yaml"
+        output_single_stem: "guitar"
+        demucs_params: {"segment_size": 16, "shifts": 4, "overlap": 0.5, "segments_enabled": True}
+        invert_spect: True
+        output_names: 
+          "guitar": "Guitar"
+
+  - name: "mvsep_guitar"
+    type: "mvsep"
+    input_dir: "instrumental_ensemble"
+    filename_filter: "(Instrumental)"
+    output_single_stem: "guitar"
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-GTR"
+        sep_type: 31
+        add_opt1: 7
+        output_names:
+          mt_7_guitar: "Guitar"
+          mt_7_other: "Instrumental"
+          mt_7_vocals: "Vocals"
+
+  - name: "mvsep_guitar_mix"
+    type: "mvsep"
+    input_dir: "MIX"    
+    output_single_stem: "guitar"
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-GTR"
+        sep_type: 31
+        add_opt1: 7
+        output_names:
+          mt_7_guitar: "Guitar"
+          mt_7_other: "Instrumental"
+          mt_7_vocals: "Vocals"
+      - name: "MVSEP-GTR-LR"
+        sep_type: 101
+        add_opt1: 1
+        output_names:
+          mt_1_all-guitar: "Guitar"
+          mt_1_no-guitar: "Instrumental"
+          mt_1_lead-guitar: "Guitar (Lead)"
+          mt_1_rhythm-guitar: "Guitar (Rhythm)"    
+
+  - name: "mvsep_guitar_variants"
+    type: "mvsep"
+    input_dir: "instrumental"
+    filename_filter: "(Guitar)"
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-GTR-A"
+        sep_type: 66
+        add_opt1: 1
+        add_opt2: 1
+        output_names:
+          mt_0_acoustic-guitar: "Guitar (Acoustic)"
+          mt_0_all-guitar: "Guitar"
+          mt_0_no-guitar: "Instrumental"
+          mt_0_other-guitar: "Guitar (Other)"
+      - name: "MVSEP-GTR-E"
+        sep_type: 81
+        add_opt1: 1
+        add_opt2: 1
+        output_names:
+          mt_0_acoustic-guitar: "Guitar (Electric)"
+          mt_0_all-guitar: "Guitar"
+          mt_0_no-guitar: "Instrumental"
+          mt_0_other-guitar: "Guitar (Other)"   
+
+  - name: "instrumental_guitar_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: ["avg"]
+    input_dir: "instrumental"
+    filename_filter: "(Guitar)"
+    output_dir: "instrumental_ensemble"
+    output_name: "Ensemble (Guitar).wav"

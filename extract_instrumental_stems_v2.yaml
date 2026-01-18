@@ -1,0 +1,431 @@
+global_config:
+  model_file_dir: "./models_cache"
+  output_dir: "./stems_out"
+  output_format: "wav"
+  sample_rate: 44100
+  use_autocast: true
+  mvsep_api_key: "MVSEP_API_KEY_HERE"
+
+stages:
+  - name: "instrumental_mix_primary"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "instrumental_raw"
+    models:
+      - name: "UVR-Inst_HQ_5"
+        model_file: "UVR-MDX-NET-Inst_HQ_5.onnx"
+        output_single_stem: "Instrumental"
+        mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.75, "batch_size": 1, "enable_denoise": False}
+        output_names: 
+          Instrumental: "Instrumental"
+      - name: "Kim-Inst"
+        model_file: "Kim_Inst.onnx"
+        output_single_stem: "instrumental"
+        output_names: 
+          instrumental: "Instrumental"
+      - name: "MDX-NET-Inst-82"
+        model_file: "UVR-MDX-NET_Inst_82_beta.onnx"
+        output_single_stem: "Instrumental"
+        mdx_params: {"hop_length": 1024, "segment_size": 512, "overlap": 0.75, "batch_size": 1, "enable_denoise": False}
+        output_names: 
+          Instrumental: "Instrumental"
+      - name: "MBR-big-beta6x"
+        model_file: "melband_roformer_big_beta6x.ckpt"
+        output_single_stem: "Instrumental"
+        output_names: 
+          Vocals: "Vocals"
+          Other: "Instrumental"
+
+  - name: "instrumental_local_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: ["max"]
+    input_dir: "instrumental_raw"
+    filename_filter: "(Instrumental)"
+    output_dir: "instrumental_ensemble"
+    output_name: "Local Ensemble (Instrumental).wav"
+    clean: True
+
+  - name: "mvsep_instrumental_mix"
+    type: "mvsep"
+    input_dir: "MIX"
+    output_dir: "instrumental_raw"
+    models:
+      - name: "MVSEP-BS-Roformer-2025.07"
+        sep_type: 40
+        add_opt1: 81
+        output_single_stem: "other"
+        output_names:
+          instrumental: "Instrumental"
+          other: "Instrumental"
+          vocals: "Vocals"
+      - name: "MVSEP-MelBand-Becruily-Deux"
+        sep_type: 48
+        add_opt1: 11
+        output_single_stem: "other"
+        output_names:
+          instrumental: "Instrumental"
+          other: "Instrumental"
+          vocals: "Vocals"
+      - name: "MVSEP-SCNet-XL-IHF"
+        sep_type: 46
+        add_opt1: 5
+        output_single_stem: "other"
+        output_names:
+          instrumental: "Instrumental"
+          other: "Instrumental"
+          vocals: "Vocals"
+
+  - name: "instrumental_mvsep_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: ["max"]
+    input_dir: "instrumental_raw"
+    filename_filter: "(Instrumental)"
+    output_dir: "instrumental_ensemble"
+    output_name: "MVSEP Ensemble (Instrumental).wav"
+    clean: True
+
+  - name: "mvsep_bass_mix"
+    type: "mvsep"
+    input_dir: "MIX"
+    output_single_stem: "bass"    
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-Bass"
+        sep_type: 41
+        add_opt1: 5
+        add_opt2: 0                
+        output_names:
+          mt_5_bass: "Bass"
+          mt_5_other: "Instrumental"
+          mt_5_vocals: "Vocals"
+
+  - name: "mvsep_drums"
+    type: "mvsep"
+    input_dir: "instrumental_ensemble"
+    filename_filter: "(Instrumental)"
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-Drums"
+        sep_type: 44
+        add_opt1: 6
+        add_opt2: 1
+        add_opt3: 0        
+        output_names:
+          mt_6_drums: "Drums"
+          mt_6_other: "Instrumental"
+          mt_6_vocals: "Vocals"
+
+  - name: "mvsep_drums_mix"
+    type: "mvsep"
+    input_dir: "MIX"    
+    output_single_stem: "drums"
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-Drums"
+        sep_type: 44
+        add_opt1: 6
+        add_opt2: 0                
+        output_names:
+          mt_6_drums: "Drums"
+          mt_6_other: "Instrumental"
+          mt_6_vocals: "Vocals"          
+
+  - name: "instrumental_mix_multistem"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "instrumental"
+    models:
+      - name: "BS-Roformer-SW"
+        model_file: "BS-Roformer-SW.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}
+        invert_spect: True
+        output_names: 
+          "vocals": "Vocals"
+          "drums": "Drums"
+          "bass": "Bass"
+          "other": "Instrumental"
+          "guitar": "Guitar"
+          "piano": "Piano"   
+      - name: "htdemucs_6s_guitar"
+        model_file: "htdemucs_6s.yaml"
+        output_single_stem: "guitar"
+        demucs_params: {"segment_size": 16, "shifts": 4, "overlap": 0.5, "segments_enabled": True}
+        invert_spect: True
+        output_names: 
+          "vocals": "Vocals"
+          "drums": "Drums"
+          "bass": "Bass"
+          "other": "Instrumental"
+          "guitar": "Guitar"
+          "piano": "Piano"
+      - name: "htdemucs_6s_piano"
+        model_file: "htdemucs_6s.yaml"
+        output_single_stem: "piano"
+        demucs_params: {"segment_size": 16, "shifts": 4, "overlap": 0.5, "segments_enabled": True}
+        invert_spect: True
+        output_names: 
+          "vocals": "Vocals"
+          "drums": "Drums"
+          "bass": "Bass"
+          "other": "Instrumental"
+          "guitar": "Guitar"
+          "piano": "Piano"
+      - name: "htdemucs_ft"
+        model_file: "htdemucs_ft.yaml"
+        demucs_params: {"segment_size": 16, "shifts": 4, "overlap": 0.5, "segments_enabled": True}
+        invert_spect: True
+        output_names: 
+          "vocals": "Vocals"
+          "drums": "Drums"
+          "bass": "Bass"
+          "other": "Instrumental" 
+
+  # - name: "mvsep_strings"
+  #   type: "mvsep"
+  #   input_dir: "instrumental"
+  #   filename_filter: "(Instrumental)"
+  #   output_dir: "instrumental"
+  #   models:
+  #     - name: "MVSEP-Strings"
+  #       sep_type: 52
+  #       add_opt1: 1
+  #       add_opt2: 1
+  #       output_names:
+  #         mt_1_strings: "Strings"
+  #         mt_1_other: "Instrumental"
+  #         mt_1_vocals: "Vocals"
+
+  # - name: "mvsep_strings_mix"
+  #   type: "mvsep"
+  #   input_dir: "MIX"    
+  #   output_single_stem: "strings"
+  #   output_dir: "instrumental"
+  #   models:
+  #     - name: "MVSEP-Strings"
+  #       sep_type: 52
+  #       add_opt1: 1
+  #       add_opt2: 0
+  #       output_names:
+  #         mt_1_strings: "Strings"
+  #         mt_1_other: "Instrumental"
+  #         mt_1_vocals: "Vocals"
+
+  - name: "mvsep_guitar"
+    type: "mvsep"
+    input_dir: "instrumental_ensemble"
+    filename_filter: "(Instrumental)"
+    output_single_stem: "guitar"
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-Guitar"
+        sep_type: 31
+        add_opt1: 7
+        output_names:
+          mt_7_guitar: "Guitar"
+          mt_7_other: "Instrumental"
+          mt_7_vocals: "Vocals"
+
+  - name: "mvsep_guitar_mix"
+    type: "mvsep"
+    input_dir: "MIX"    
+    output_single_stem: "guitar"
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-Guitar"
+        sep_type: 31
+        add_opt1: 7
+        output_names:
+          mt_7_guitar: "Guitar"
+          mt_7_other: "Instrumental"
+          mt_7_vocals: "Vocals"
+      - name: "MVSEP-LeadRhythm-Guitar"
+        sep_type: 101
+        add_opt1: 1
+        output_names:
+          mt_0_all-guitar: "Guitar"
+          mt_0_no-guitar: "Instrumental"
+          mt_0_lead-guitar: "Guitar (Lead)"
+          mt_0_rhythm-guitar: "Guitar (Rhythm)"    
+
+  - name: "mvsep_guitar_variants"
+    type: "mvsep"
+    input_dir: "instrumental"
+    filename_filter: "(Guitar)"
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-Acoustic-Guitar"
+        sep_type: 66
+        add_opt1: 1
+        add_opt2: 1
+        output_names:
+          mt_0_acoustic-guitar: "Guitar (Acoustic)"
+          mt_0_all-guitar: "Guitar"
+          mt_0_no-guitar: "Instrumental"
+          mt_0_other-guitar: "Guitar (Other)"
+      - name: "MVSEP-Electric-Guitar"
+        sep_type: 81
+        add_opt1: 1
+        add_opt2: 1
+        output_names:
+          mt_0_acoustic-guitar: "Guitar (Electric)"
+          mt_0_all-guitar: "Guitar"
+          mt_0_no-guitar: "Instrumental"
+          mt_0_other-guitar: "Guitar (Other)"   
+
+  - name: "mvsep_piano"
+    type: "mvsep"
+    input_dir: "instrumental_ensemble"
+    filename_filter: "(Instrumental)"
+    output_dir: "instrumental"
+    models:
+      - name: "MVSEP-Piano"
+        sep_type: 29
+        add_opt1: 5        
+        output_names:
+          mt_5_piano: "Piano"
+          mt_5_other: "Instrumental"
+          mt_5_vocals: "Vocals"
+
+  - name: "mvsep_piano_MIX"
+    type: "mvsep"
+    input_dir: "mix"    
+    output_dir: "instrumental"
+    output_single_stem: "piano"
+    models:
+      - name: "MVSEP-Piano"
+        sep_type: 29
+        add_opt1: 5        
+        output_names:
+          mt_5_piano: "Piano"
+          mt_5_other: "Instrumental"
+          mt_5_vocals: "Vocals"          
+
+  - name: "instrumental_bass_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: ["avg"]
+    input_dir: "instrumental"
+    filename_filter: "(Bass)"
+    output_dir: "instrumental_ensemble"
+    output_name: "Ensemble (Bass).wav"
+
+  - name: "instrumental_strings_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: ["avg"]
+    input_dir: "instrumental"
+    filename_filter: "(Strings)"
+    output_dir: "instrumental_ensemble"
+    output_name: "Ensemble (Strings).wav"
+
+  - name: "instrumental_guitar_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: ["avg"]
+    input_dir: "instrumental"
+    filename_filter: "(Guitar)"
+    output_dir: "instrumental_ensemble"
+    output_name: "Ensemble (Guitar).wav"
+
+  - name: "instrumental_drums_ensemble"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: ["avg", "max"]
+    input_dir: "instrumental"
+    filename_filter: "(Drums)"
+    output_dir: "instrumental_drums"
+    output_name: "Ensemble (Drums).wav"
+
+  - name: "local_drums_multistem"
+    type: "separate"
+    input_dir: "instrumental_drums"
+    output_dir: "instrumental_drums"
+    filename_filter: "(Drums)"
+    models:
+      - name: "MDX23C-DrumSep-AJ"
+        model_file: "MDX23C-DrumSep-aufr33-jarredou.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}
+        output_names: 
+          "kick": "Kick"
+          "snare": "Snare"
+          "toms": "Toms"
+          "hh": "Hihat"
+          "ride": "Ride"
+          "crash": "Crash"
+
+  - name: "mvsep_drums_multistem"
+    type: "mvsep"
+    input_dir: "instrumental_drums"
+    filename_filter: "(Drums)"
+    output_dir: "instrumental_drums"
+    models:
+      - name: "MVSEP-DrumSep"
+        sep_type: 37
+        add_opt1: 7
+        add_opt2: 1
+        output_names:
+          kick: "Kick"
+          snare: "Snare"
+          toms: "Toms"
+          hh: "Hihat"
+          ride: "Ride"
+          crash: "Crash"
+          cymbals: "Cymbals"
+          residual: "Instrumental"
+
+  - name: "drums_ensemble_kick"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: "median"
+    input_dir: "instrumental_drums"
+    filename_filter: "(Kick)"
+    output_dir: "instrumental_drums"
+    output_name: "Ensemble (Kick).wav"    
+
+  - name: "drums_ensemble_snare"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: "median"
+    input_dir: "instrumental_drums"
+    filename_filter: "(Snare)"
+    output_dir: "instrumental_drums"
+    output_name: "Ensemble (Snare).wav"    
+
+  - name: "drums_ensemble_toms"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: "median"
+    input_dir: "instrumental_drums"
+    filename_filter: "(Toms)"
+    output_dir: "instrumental_drums"
+    output_name: "Ensemble (Toms).wav"
+
+  - name: "drums_ensemble_hihat"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: "median"
+    input_dir: "instrumental_drums"
+    filename_filter: "(Hihat)"
+    output_dir: "instrumental_drums"
+    output_name: "Ensemble (Hihat).wav"    
+
+  - name: "drums_ensemble_ride"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: "median"
+    input_dir: "instrumental"
+    filename_filter: "(Ride)"
+    output_dir: "instrumental_drums"
+    output_name: "Ensemble (Ride).wav"
+
+  - name: "drums_ensemble_crash"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: "median"
+    input_dir: "instrumental_drums"
+    filename_filter: "(Crash)"
+    output_dir: "instrumental_drums"
+    output_name: "Ensemble (Crash).wav"          
+

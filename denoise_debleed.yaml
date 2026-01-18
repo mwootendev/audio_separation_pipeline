@@ -1,0 +1,79 @@
+global_config: 
+  model_file_dir: "./models_cache"
+  output_dir: "./stems_out"
+  output_format: "wav"
+  sample_rate: 44100
+  use_autocast: true
+  mvsep_api_key: "MVSEP_API_KEY_HERE"
+stages: 
+  - name: "instrumental_debleed"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "denoised"
+    models:
+      - name: "MBR-Denoise-Debleed-gabox"
+        model_file: "mel_band_roformer_denoise_debleed_gabox.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}        
+        invert_spect: True
+        output_names: 
+          Instrumental: "Denoised"
+          Bleed: "Bleed"
+      - name: "MBR-Denoise-Aufr33"
+        model_file: "denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}        
+        invert_spect: True
+        output_names: 
+          dry: "Denoised"
+          "noise": "Noise"
+          "no noise": "Denoised"
+          other: "Noise"
+      # - name: "MBR-Bleed-Suppressor-v1"
+      #   model_file: "mel_band_roformer_bleed_suppressor_v1.ckpt"
+      #   invert_spect: True
+      #   output_names: 
+      #     Instrumental: "Debleed"
+      #     Bleed: "Bleed"       
+
+  # - name: "instrumental_denoise"
+  #   type: "separate"
+  #   input_dir: "MIX"
+  #   output_dir: "denoised"    
+  #   models:
+  #     - name: "UVR-DeNoise"
+  #       model_file: "UVR-DeNoise.pth"
+  #       vr_params: {"batch_size": 4, "window_size": 320, "aggression": 3, "enable_tta": True, "enable_post_process": False, "post_process_threshold": 0.2, "high_end_process": False}
+  #       invert_spect: True
+  # #       output_single_stem: "no noise"
+  #       output_names: 
+  #         "no noise": "Denoised"
+  #         noise: "Noise"
+  #     - name: "UVR-DeNoise-Lite"
+  #       model_file: "UVR-DeNoise-Lite.pth"
+  #       vr_params: {"batch_size": 4, "window_size": 320, "aggression": 3, "enable_tta": True, "enable_post_process": False, "post_process_threshold": 0.2, "high_end_process": False}
+  #       invert_spect: True
+  #       # output_single_stem: "no noise"
+  #       output_names: 
+  #         "no noise": "Denoised"
+  #         noise: "Noise"
+      
+  # - name: "mvsep_denoise"
+  #   type: "mvsep"
+  #   input_dir: "MIX"
+  #   output_dir: "denoised"
+  #   models:
+  #     - name: "MVSEP-Denoise-Reg"
+  #       sep_type: 47
+  #       add_opt1: 0
+  #       output_names:
+  #         dry: "Denoised"
+  #         "noise": "Noise"
+  #         "no noise": "Denoised"
+  #         other: "Noise"
+  #     - name: "MVSEP-Denoise-Aggr"
+  #       sep_type: 47
+  #       add_opt1: 1
+  #       output_names:
+  #         dry: "Denoised"
+  #         "noise": "Noise"
+  #         "no noise": "Denoised"
+  #         other: "Noise"
