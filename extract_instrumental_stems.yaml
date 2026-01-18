@@ -135,56 +135,77 @@ stages:
     input_dir: "instrumental_multistem"
     filename_filter: "(Bass)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [30, 5000]   # keep lows & some upper harmonics; trim sub-rumble and excess hiss
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 30
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 5000  # keep lows & some upper harmonics; trim sub-rumble and excess hiss
 
   - name: "filter_drums_full"
     type: "filter"
     input_dir: "instrumental_multistem"
     filename_filter: "(Drums)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [35, 14000]  # full kit; removes sub-rumble and ultrahigh fizz
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 35
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 14000  # full kit; removes sub-rumble and ultrahigh fizz
 
   - name: "filter_guitar"
     type: "filter"
     input_dir: "instrumental_multistem"
     filename_filter: "(Guitar)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [70, 10000]
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 70
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 10000
 
   - name: "filter_piano"
     type: "filter"
     input_dir: "instrumental_multistem"
     filename_filter: "(Piano)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [40, 14000]
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 40
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 14000
 
   - name: "filter_strings"
     type: "filter"
     input_dir: "instrumental_multistem"
     filename_filter: "(Strings|Violin|Viola|Cello)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [100, 16000]   # for cello, this still keeps ~100 Hz; adjust to 60–120 if needed
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 100
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 16000  # for cello, this still keeps ~100 Hz; adjust to 60-120 if needed
 
   - name: "filter_brass_winds"
     type: "filter"
     input_dir: "instrumental_multistem"
     filename_filter: "(Brass|Sax|Trumpet|Trombone|Flute|Clarinet)"
     output_dir: "instrumental_multistem"
-    bands:
-      - [80, 14000]
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 80
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 14000
 
   - name: "filter_other"
     type: "filter"
     input_dir: "instrumental_multistem"
     filename_filter: "(Other)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [40, 14000]                  
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 40
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 14000
 
   - name: "drums_multistem"
     type: "separate"
@@ -208,48 +229,66 @@ stages:
     input_dir: "instrumental_multistem_drums"
     filename_filter: "(Kick)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [25, 4000]   # body + beater click
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 25
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 4000  # body + beater click
 
   - name: "filter_snare"
     type: "filter"
     input_dir: "instrumental_multistem_drums"
     filename_filter: "(Snare)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [120, 14000] # body + snap; trims sub and extreme highs
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 120
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 14000  # body + snap; trims sub and extreme highs
 
   - name: "filter_toms"
     type: "filter"
     input_dir: "instrumental_multistem_drums"
     filename_filter: "(Toms)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [50, 10000]
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 50
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 10000
 
   - name: "filter_hihat"
     type: "filter"
     input_dir: "instrumental_multistem_drums"
     filename_filter: "(Hihat)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [200, 16000]       
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 200
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 16000       
 
   - name: "filter_ride"
     type: "filter"
     input_dir: "instrumental_multistem_drums"
     filename_filter: "(Ride)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [200, 16000]
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 200
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 16000
 
   - name: "filter_crash"
     type: "filter"
     input_dir: "instrumental_multistem_drums"
     filename_filter: "(Crash)"
     output_dir: "instrumental_multistem_filtered"
-    bands:
-      - [200, 16000]        
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 200
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 16000        
 
   - name: "bass_ensemble"
     type: "ensemble"

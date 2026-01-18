@@ -259,7 +259,7 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
     if stage_type == "ensemble":
         outputs = run_ensemble_stage(stage_cfg, out_dir, inputs_for_stage)
     elif stage_type == "filter":
-        outputs = run_filter_stage(stage_cfg, out_dir, inputs_for_stage)
+        outputs = run_filter_stage(stage_cfg, out_dir, inputs_for_stage, global_cfg)
     elif stage_type == "spectral_mask":
         outputs = run_spectral_mask_stage(stage_cfg, out_dir, inputs_for_stage, base_output, mix_path, target_sr)
     elif stage_type == "midi":
@@ -531,39 +531,156 @@ def run_ensemble_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> Li
     return []
 
 
-def run_filter_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> List[Path]:
+def _normalize_plugins_cfg(plugins_cfg: list | None) -> list[dict]:
+    if not plugins_cfg:
+        return []
+    normalized: list[dict] = []
+    for plugin in plugins_cfg:
+        if isinstance(plugin, str):
+            normalized.append({"type": plugin})
+        elif isinstance(plugin, dict):
+            normalized.append(dict(plugin))
+    return normalized
+
+
+def _resolve_vst3_path(path_value: str | None, global_cfg: dict) -> Path | None:
+    if not path_value:
+        return None
+    p = Path(path_value)
+    if p.is_absolute():
+        return p
+    base = global_cfg.get("vst3_plugin_dir")
+    if base:
+        return Path(base) / p
+    return p
+
+
+def _build_plugin(plugin_cfg: dict, global_cfg: dict, sample_rate: int) -> "AudioProcessor":
+    from pedalboard import (
+        Clipping,
+        Compressor,
+        Gain,
+        HighShelfFilter,
+        HighpassFilter,
+        Invert,
+        LadderFilter,
+        LowShelfFilter,
+        LowpassFilter,
+        NoiseGate,
+        PitchShift,
+        Resample,
+        VST3Plugin,
+    )
+
+    plugin_type = str(plugin_cfg.get("type") or plugin_cfg.get("name") or "").strip()
+    if not plugin_type:
+        raise ValueError("Filter plugin is missing a 'type'.")
+    params = {k: v for k, v in plugin_cfg.items() if k not in {"type", "name", "path", "plugin_path", "file", "parameters"}}
+
+    if plugin_type == "VST3Plugin":
+        vst_path = (
+            plugin_cfg.get("path")
+            or plugin_cfg.get("plugin_path")
+            or plugin_cfg.get("file")
+        )
+        resolved = _resolve_vst3_path(vst_path, global_cfg)
+        if not resolved:
+            raise ValueError("VST3Plugin requires a 'path' or 'plugin_path'.")
+        plugin = VST3Plugin(str(resolved), sample_rate=sample_rate)
+        parameters = plugin_cfg.get("parameters") or {}
+        for name, value in parameters.items():
+            try:
+                plugin.parameters[name].value = value
+            except Exception:
+                print(f"[warn] VST3Plugin parameter '{name}' not applied.")
+        return plugin
+
+    plugin_map = {
+        "Clipping": Clipping,
+        "Compressor": Compressor,
+        "Gain": Gain,
+        "HighShelfFilter": HighShelfFilter,
+        "HighpassFilter": HighpassFilter,
+        "Invert": Invert,
+        "LadderFilter": LadderFilter,
+        "LowShelfFilter": LowShelfFilter,
+        "LowpassFilter": LowpassFilter,
+        "NoiseGate": NoiseGate,
+        "PitchShift": PitchShift,
+        "Resample": Resample,
+    }
+    cls = plugin_map.get(plugin_type)
+    if not cls:
+        raise ValueError(f"Unsupported filter plugin '{plugin_type}'.")
+    return cls(**params)
+
+
+def _apply_plugins(audio: "np.ndarray", sample_rate: int, plugins_cfg: list[dict], global_cfg: dict) -> tuple["np.ndarray", int]:
+    from pedalboard import Resample
+
+    current_sr = sample_rate
+    for plugin_cfg in plugins_cfg:
+        plugin = _build_plugin(plugin_cfg, global_cfg, current_sr)
+        audio = plugin(audio, current_sr)
+        if isinstance(plugin, Resample):
+            target_sr = getattr(plugin, "target_sample_rate", None) or getattr(plugin, "sample_rate", None)
+            if target_sr:
+                current_sr = int(target_sr)
+    return audio, current_sr
+
+
+def _apply_bandpass_sums(audio: "np.ndarray", sample_rate: int, bands: list) -> "np.ndarray":
+    import numpy as np
+    from pedalboard import Pedalboard, HighpassFilter, LowpassFilter
+
+    y = np.zeros_like(audio)
+    for lo, hi in bands:
+        lo_hz = max(10.0, float(lo))
+        hi_hz = min(0.49 * sample_rate, float(hi))
+        board = Pedalboard([HighpassFilter(cutoff_frequency_hz=lo_hz), LowpassFilter(cutoff_frequency_hz=hi_hz)])
+        y += board(audio, sample_rate)
+    return y
+
+
+def run_filter_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path], global_cfg: dict) -> List[Path]:
     """
-    Apply keep-bands filters to inputs.
-    stage_cfg expects:
-      bands: list of [lo, hi] Hz ranges to keep (summed)
+    Apply pedalboard filter chains to inputs.
+    stage_cfg supports:
+      bands: list of [lo, hi] Hz ranges to keep (summed via Highpass/Lowpass filters)
+      plugins: list of pedalboard plugins to apply in order
     """
     import numpy as np
-    import soundfile as sf
-    from scipy.signal import butter, sosfilt
+    from pedalboard.io import AudioFile
 
     bands = stage_cfg.get("bands") or []
-    if not bands:
-        print(f"[{stage_cfg.get('name','?')}] No bands specified, skipping.")
+    plugins_cfg = _normalize_plugins_cfg(stage_cfg.get("plugins"))
+    if not bands and not plugins_cfg:
+        print(f"[{stage_cfg.get('name','?')}] No bands or plugins specified, skipping.")
         return []
 
     outputs: List[Path] = []
     for wav in inputs:
-        audio, sr = sf.read(str(wav), always_2d=True)
-        x = audio.astype(np.float32)
-        y = np.zeros_like(x)
-        for lo, hi in bands:
-            lo = max(10.0, float(lo))
-            hi = float(hi)
-            hi = min(0.49 * sr, hi)
-            sos = butter(6, [lo, hi], btype="bandpass", fs=sr, output="sos")
-            # Filter along the time axis (axis=0) per channel; avoids cross-channel bleed.
-            y += sosfilt(sos, x, axis=0)
-        # Normalize lightly
-        peak = np.max(np.abs(y)) + 1e-12
-        y = y * (0.99 / peak)
+        with AudioFile(str(wav)) as f:
+            audio = f.read(f.frames)
+            sr = f.samplerate
+        if audio.ndim == 1:
+            audio = audio[None, :]
+        if audio.shape[0] > audio.shape[1]:
+            audio = audio.T
+
+        y = audio.astype(np.float32)
+        if bands:
+            y = _apply_bandpass_sums(y, sr, bands)
+        if plugins_cfg:
+            y, sr = _apply_plugins(y, sr, plugins_cfg, global_cfg)
+
+        if stage_cfg.get("normalize", True):
+            peak = np.max(np.abs(y)) + 1e-12
+            y = y * (0.99 / peak)
         out_path = out_dir / f"{wav.stem} ({stage_cfg.get('name','filter')}).wav"
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        sf.write(str(out_path), y, sr)
+        with AudioFile(str(out_path), "w", samplerate=sr, num_channels=y.shape[0]) as f:
+            f.write(y)
         outputs.append(out_path)
     return outputs
 

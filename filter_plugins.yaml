@@ -1,0 +1,65 @@
+# Sample filter stage configurations for pedalboard plugins (excluding VST3Plugin)
+# Each entry can be copied into a stage's `plugins` list.
+# See stem_pipeline.py for how these are applied.
+
+Clipping:
+  - type: "Clipping"
+    threshold_db: -6.0
+
+Compressor:
+  - type: "Compressor"
+    threshold_db: -18.0
+    ratio: 3.0
+    attack_ms: 5.0
+    release_ms: 100.0
+
+Gain:
+  - type: "Gain"
+    gain_db: 3.0
+
+HighShelfFilter:
+  - type: "HighShelfFilter"
+    cutoff_frequency_hz: 8000.0
+    gain_db: -3.0
+    q: 0.707
+
+HighpassFilter:
+  - type: "HighpassFilter"
+    cutoff_frequency_hz: 120.0
+    q: 0.707
+
+Invert:
+  - type: "Invert"
+
+LadderFilter:
+  - type: "LadderFilter"
+    mode: "lowpass"
+    cutoff_hz: 8000.0
+    resonance: 0.2
+    drive: 1.0
+
+LowShelfFilter:
+  - type: "LowShelfFilter"
+    cutoff_frequency_hz: 120.0
+    gain_db: -4.0
+    q: 0.707
+
+LowpassFilter:
+  - type: "LowpassFilter"
+    cutoff_frequency_hz: 14000.0
+    q: 0.707
+
+NoiseGate:
+  - type: "NoiseGate"
+    threshold_db: -45.0
+    ratio: 2.0
+    attack_ms: 5.0
+    release_ms: 150.0
+
+PitchShift:
+  - type: "PitchShift"
+    semitones: 1.0
+
+Resample:
+  - type: "Resample"
+    target_sample_rate: 44100

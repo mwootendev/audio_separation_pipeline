@@ -111,8 +111,11 @@ stages:
     input_dir: "vocals"
     output_dir: "vocals_filtered"
     filename_filter: "(Vocals)"
-    bands:
-      - [100, 16000]
+    plugins:
+      - type: "HighpassFilter"
+        cutoff_frequency_hz: 100
+      - type: "LowpassFilter"
+        cutoff_frequency_hz: 16000
 
   - name: "vocals_ensemble"
     type: "ensemble"
