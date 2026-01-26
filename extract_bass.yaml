@@ -1,0 +1,121 @@
+global_config:
+  model_file_dir: "./models_cache"
+  output_dir: "./stems_out"
+  output_format: "wav"
+  sample_rate: 44100
+  use_autocast: true
+  mvsep_api_key: "MVSEP_API_KEY_HERE"
+
+stages:
+  - name: "BS-MIX-MVSEP"
+    type: "mvsep"
+    input_dir: "MIX"
+    output_single_stem: "mt_5_bass"    
+    output_dir: "instrumental/bs"
+    models:
+      - name: "MVSEP-BS"
+        sep_type: 41
+        add_opt1: 5
+        add_opt2: 0                
+        output_names:
+          mt_5_bass: "Bass"
+          mt_5_other: "Instrumental"
+          mt_5_vocals: "Trash"
+
+  - name: "BS-MIX-MULTI"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "instrumental/bs"
+    output_single_stem: "bass"
+    models:
+      - name: "BSR-SW"
+        model_file: "BS-Roformer-SW.ckpt"
+        mdxc_params: {"segment_size": 256, "override_model_segment_size": False, "batch_size": 2, "overlap": 16, "pitch_shift": 0}
+        invert_spect: True
+        output_single_stem: "Bass"
+        output_names: 
+          "vocals": "Trash"
+          "drums": "Drums"
+          "bass": "Bass"
+          "other": "Trash"
+          "guitar": "Guitar"
+          "piano": "Piano"        
+      - name: "HTD-FT"
+        model_file: "htdemucs_ft.yaml"
+        demucs_params: {"segment_size": 16, "shifts": 4, "overlap": 0.5, "segments_enabled": True}
+        invert_spect: True
+        output_single_stem: "bass"
+        output_names: 
+          "vocals": "Trash"
+          "drums": "Drums"
+          "bass": "Bass"
+          "other": "Trash"
+
+  - name: "BS-FLTR"
+    type: "filter"
+    input_dir: "instrumental/bs"
+    filename_filter: "(Bass)"
+    output_dir: "instrumental/bs/filtered"
+    clean: True
+    plugins: 
+      - type: "HighShelfFilter"
+        cutoff_frequency_hz: 5000
+        gain_db: -60.0
+      - type: "LowShelfFilter"
+        cutoff_frequency_hz: 30
+        gain_db: -60.0
+      - type: "NoiseGate"
+        threshold_db: -45.0
+
+  - name: "BS-DENOISE"
+    type: "separate"
+    input_dir: "instrumental/bs/filtered"
+    output_dir: "instrumental/bs/denoised"
+    clean: True
+    models:
+      - name: "UVR-DeNoise"
+        model_file: "UVR-DeNoise.pth"
+        vr_params: {"batch_size": 4, "window_size": 1024, "aggression": 30, "enable_tta": True, "enable_post_process": False, "post_process_threshold": 0.2, "high_end_process": True}
+        invert_spect: True
+        output_single_stem: "no noise"
+        output_names: 
+          "no noise": "Bass"
+          noise: "Noise"
+
+  - name: "BS-ENSEMBLE"
+    type: "ensemble"
+    mode: "instrumental"
+    combine: ["avg"]
+    input_dir: "instrumental/bs/denoised"
+    filename_filter: "(Bass)"
+    output_dir: "instrumental/ensemble"
+    output_name: "Ensemble (Bass).wav"
+    clean: True
+  
+  - name: "BS-FLTR-MIDI"
+    type: "filter"
+    input_dir: "instrumental/ensemble"
+    filename_filter: "(Bass)"
+    output_dir: "instrumental/midi"
+    plugins:
+      - type: "HighShelfFilter"
+        cutoff_frequency_hz: 400
+        gain_db: -60.0        
+      - type: "LowShelfFilter"
+        cutoff_frequency_hz: 40
+        gain_db: -60.0
+      - type: "NoiseGate"
+        threshold_db: -45.0
+      - type: "Compressor"
+        threshold_db: -18.0
+        ratio: 2.0
+        attack_ms: 10.0
+        release_ms: 100.0    
+
+  - name: "BS-MIDI"
+    type: "midi"
+    input_dir: "instrumental/midi"
+    output_dir: "instrumental/midi"
+    filename_filter: "(Bass)"
+    # clean: True
+    engines: ["basic_pitch"]
