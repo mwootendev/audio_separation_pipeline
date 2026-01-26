@@ -156,8 +156,13 @@ def rank_vocal_candidates(
     return scores
 
 
-def _read_wav_mono(path: Path) -> Tuple[np.ndarray, int]:
+def _read_wav_stereo(path: Path) -> Tuple[np.ndarray, int]:
     x, sr = sf.read(str(path), always_2d=True)
+    return x.astype(np.float32), sr
+
+
+def _read_wav_mono(path: Path) -> Tuple[np.ndarray, int]:
+    x, sr = _read_wav_stereo(path)
     x = _to_mono(x).astype(np.float32)
     return x, sr
 
@@ -168,7 +173,20 @@ def _resample_to(x: np.ndarray, sr_from: int, sr_to: int) -> np.ndarray:
     up = sr_to // g
     down = sr_from // g
     # resample_poly is high-quality and efficient
-    return resample_poly(x, up, down).astype(np.float32)
+    axis = 0 if x.ndim > 1 else -1
+    return resample_poly(x, up, down, axis=axis).astype(np.float32)
+
+
+def _match_channels(x: np.ndarray, target_channels: int) -> np.ndarray:
+    if x.ndim == 1:
+        x = x[:, None]
+    if x.shape[1] == target_channels:
+        return x
+    if x.shape[1] == 1 and target_channels > 1:
+        return np.repeat(x, target_channels, axis=1)
+    if target_channels == 1 and x.shape[1] > 1:
+        return _to_mono(x)[:, None]
+    raise ValueError(f"Unsupported channel count {x.shape[1]} for target {target_channels}.")
 
 def build_vocals_ensemble(
     vocal_paths: List[Path],
@@ -180,6 +198,7 @@ def build_vocals_ensemble(
     noverlap: int = 3072,
     p: float = 1.0,
     combine: str = "avg",  # "avg" (weighted), "max", "min"
+    force_mono: bool = False,
 ) -> Path:
     """
     Weighted complex-STFT merge:
@@ -195,7 +214,7 @@ def build_vocals_ensemble(
     sigs: List[np.ndarray] = []
     srs: List[int] = []
     for vp in vocal_paths:
-        x, s = _read_wav_mono(vp)
+        x, s = _read_wav_stereo(vp)
         sigs.append(x)
         srs.append(s)
 
@@ -204,9 +223,15 @@ def build_vocals_ensemble(
     if any(s != sr_use for s in srs):
         raise RuntimeError(f"Sample-rate mismatch across candidates: {set(srs)}. Resample first or export consistently.")
 
-    # Trim/pad to same length
-    L = max(len(x) for x in sigs)
-    sigs = [np.pad(x, (0, L - len(x))) for x in sigs]
+    # Normalize channels and length
+    if force_mono:
+        sigs = [_to_mono(x)[:, None] if x.ndim > 1 else x[:, None] for x in sigs]
+        ch_target = 1
+    else:
+        ch_target = max(x.shape[1] for x in sigs)
+        sigs = [_match_channels(x, ch_target) for x in sigs]
+    L = max(x.shape[0] for x in sigs)
+    sigs = [np.pad(x, ((0, L - x.shape[0]), (0, 0))) for x in sigs]
 
     # Softmax scores -> per-model scalar weights
     raw = np.array([scores.get(vp, 0.0) for vp in vocal_paths], dtype=np.float64)
@@ -215,38 +240,49 @@ def build_vocals_ensemble(
     w_model = w_model / (np.sum(w_model) + 1e-12)
     w_model = w_model.astype(np.float32)
 
-    # STFT each
-    specs = []
-    mags = []
-    for x in sigs:
-        f, t, Z = stft(x, fs=sr_use, nperseg=nperseg, noverlap=noverlap, window="hann", padded=False, boundary=None)
-        specs.append(Z.astype(np.complex64))
-        mags.append(np.abs(Z).astype(np.float32))
-
     combine = combine.lower()
-    if combine == "max":
-        mags_stack = np.stack(mags, axis=0)
-        idx = np.argmax(mags_stack, axis=0)
-        Z_stack = np.stack(specs, axis=0)
-        Z_ens = np.take_along_axis(Z_stack, idx[None, ...], axis=0)[0]
-    elif combine == "min":
-        mags_stack = np.stack(mags, axis=0)
-        idx = np.argmin(mags_stack, axis=0)
-        Z_stack = np.stack(specs, axis=0)
-        Z_ens = np.take_along_axis(Z_stack, idx[None, ...], axis=0)[0]
-    else:  # "avg" weighted
-        num = np.zeros_like(specs[0], dtype=np.complex64)
-        den = np.zeros_like(mags[0], dtype=np.float32)
+    channels_out: List[np.ndarray] = []
+    for ch in range(ch_target):
+        specs = []
+        mags = []
+        for x in sigs:
+            f, t, Z = stft(
+                x[:, ch],
+                fs=sr_use,
+                nperseg=nperseg,
+                noverlap=noverlap,
+                window="hann",
+                padded=False,
+                boundary=None,
+            )
+            specs.append(Z.astype(np.complex64))
+            mags.append(np.abs(Z).astype(np.float32))
 
-        for i, (Z, M) in enumerate(zip(specs, mags)):
-            W = (np.power(M, p) * w_model[i]).astype(np.float32)
-            num += (W * Z)
-            den += W
+        if combine == "max":
+            mags_stack = np.stack(mags, axis=0)
+            idx = np.argmax(mags_stack, axis=0)
+            Z_stack = np.stack(specs, axis=0)
+            Z_ens = np.take_along_axis(Z_stack, idx[None, ...], axis=0)[0]
+        elif combine == "min":
+            mags_stack = np.stack(mags, axis=0)
+            idx = np.argmin(mags_stack, axis=0)
+            Z_stack = np.stack(specs, axis=0)
+            Z_ens = np.take_along_axis(Z_stack, idx[None, ...], axis=0)[0]
+        else:  # "avg" weighted
+            num = np.zeros_like(specs[0], dtype=np.complex64)
+            den = np.zeros_like(mags[0], dtype=np.float32)
 
-        Z_ens = num / (den + 1e-12)
+            for i, (Z, M) in enumerate(zip(specs, mags)):
+                W = (np.power(M, p) * w_model[i]).astype(np.float32)
+                num += (W * Z)
+                den += W
 
-    # Inverse STFT
-    _, y = istft(Z_ens, fs=sr_use, nperseg=nperseg, noverlap=noverlap, window="hann", input_onesided=True)
+            Z_ens = num / (den + 1e-12)
+
+        _, y_ch = istft(Z_ens, fs=sr_use, nperseg=nperseg, noverlap=noverlap, window="hann", input_onesided=True)
+        channels_out.append(y_ch.astype(np.float32))
+
+    y = np.stack(channels_out, axis=1)
     y = _peak_normalize(y, peak=0.99)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -259,16 +295,17 @@ def build_instrumental_from_mix_minus_vocals(
     vocals_path: Path,
     out_path: Path,
 ) -> Path:
-    mix, sr1 = _read_wav_mono(mix_path)
-    vox, sr2 = _read_wav_mono(vocals_path)
+    mix, sr1 = _read_wav_stereo(mix_path)
+    vox, sr2 = _read_wav_stereo(vocals_path)
 
     # Resample vocals to mix SR (so mix - vocals is valid)
     if sr1 != sr2:
         vox = _resample_to(vox, sr2, sr1)
 
-    n = max(len(mix), len(vox))
-    mix = np.pad(mix, (0, n - len(mix)))
-    vox = np.pad(vox, (0, n - len(vox)))
+    vox = _match_channels(vox, mix.shape[1])
+    n = max(mix.shape[0], vox.shape[0])
+    mix = np.pad(mix, ((0, n - mix.shape[0]), (0, 0)))
+    vox = np.pad(vox, ((0, n - vox.shape[0]), (0, 0)))
 
     inst = mix - vox
     inst = _peak_normalize(inst, peak=0.99)
@@ -284,6 +321,7 @@ def build_instrumental_ensemble(
     mix_path: Optional[Path] = None,
     vocals_path: Optional[Path] = None,
     combine: str = "median",  # "median", "avg", "max", "min"
+    force_mono: bool = False,
 ) -> Path:
     """
     Build an instrumental ensemble that reduces vocal bleed:
@@ -300,7 +338,7 @@ def build_instrumental_ensemble(
         _, sr_target = sf.read(str(mix_path), always_2d=True)
 
     for ip in instrumental_paths:
-        x, sr = _read_wav_mono(ip)
+        x, sr = _read_wav_stereo(ip)
         if sr_target is None:
             sr_target = sr
         if sr != sr_target:
@@ -312,8 +350,14 @@ def build_instrumental_ensemble(
     if sr_target is None:
         sr_target = srs[0]
 
-    L = max(len(x) for x in sigs)
-    sigs = [np.pad(x, (0, L - len(x))) for x in sigs]
+    if force_mono:
+        sigs = [_to_mono(x)[:, None] if x.ndim > 1 else x[:, None] for x in sigs]
+        ch_target = 1
+    else:
+        ch_target = max(x.shape[1] for x in sigs)
+        sigs = [_match_channels(x, ch_target) for x in sigs]
+    L = max(x.shape[0] for x in sigs)
+    sigs = [np.pad(x, ((0, L - x.shape[0]), (0, 0))) for x in sigs]
 
     stack = np.stack(sigs, axis=0)
     combine = combine.lower()
@@ -327,10 +371,11 @@ def build_instrumental_ensemble(
         inst = np.median(stack, axis=0).astype(np.float32)
 
     if vocals_path:
-        voc, sr_v = _read_wav_mono(vocals_path)
+        voc, sr_v = _read_wav_stereo(vocals_path)
         if sr_v != sr_target:
             voc = _resample_to(voc, sr_v, sr_target)
-        voc = np.pad(voc, (0, len(inst) - len(voc)))
+        voc = _match_channels(voc, inst.shape[1])
+        voc = np.pad(voc, ((0, inst.shape[0] - voc.shape[0]), (0, 0)))
         inst = inst - voc
 
     inst = _peak_normalize(inst, peak=0.99)

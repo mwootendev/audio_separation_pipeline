@@ -498,6 +498,7 @@ def run_ensemble_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> Li
     if mode == "vocals":
         candidates = [p for p in inputs if any(k in p.name.lower() for k in VOCAL_KEYWORDS)]
         scores = {p: 0.0 for p in candidates}
+        force_mono = bool(stage_cfg.get("force_mono"))
         for combine in combine_values:
             if multi_combine and combine is not None:
                 prefix = f"{combine.capitalize()} "
@@ -510,12 +511,14 @@ def run_ensemble_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> Li
                 out_path,
                 top_k=min(top_k or len(candidates), len(candidates)),
                 combine=(combine or "avg"),
+                force_mono=force_mono,
             )
             print(f"[{stage_cfg.get('name','?')}] Vocals ensemble -> {out_path}")
             outputs.append(out_path)
         return outputs
     if mode == "instrumental":
         candidates = [p for p in inputs if any(k in p.name.lower() for k in INSTRUMENTAL_KEYWORDS)]
+        force_mono = bool(stage_cfg.get("force_mono"))
         for combine in combine_values:
             if multi_combine and combine is not None:
                 prefix = f"{combine.capitalize()} "
@@ -523,7 +526,13 @@ def run_ensemble_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> Li
             else:
                 out_path = out_dir / output_name
             combine_use = (combine or "median").lower()
-            build_instrumental_ensemble(candidates, out_path, vocals_path=None, combine=combine_use)
+            build_instrumental_ensemble(
+                candidates,
+                out_path,
+                vocals_path=None,
+                combine=combine_use,
+                force_mono=force_mono,
+            )
             print(f"[{stage_cfg.get('name','?')}] Instrumental ensemble -> {out_path}")
             outputs.append(out_path)
         return outputs
