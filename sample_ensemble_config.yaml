@@ -6,48 +6,50 @@ global_config:
   use_autocast: true
 
 stages:
-  # # Example 1: Separation & Ensembling using an Ensemble Preset from the registry
-  # - name: "vocals_preset_ensemble"
-  #   type: "separate"
-  #   input_dir: "MIX"
-  #   output_dir: "vocals"
-  #   models:
-  #     - name: "VocalBalancedPreset"
-  #       # Reference a preset key defined in ensemble_presets.json
-  #       ensemble_preset: "vocal_balanced"
-  #       output_names:
-  #         Vocals: "Vocals"
-  #         other: "Instrumental"
+  # Example 1: Separation & Ensembling using an Ensemble Preset from the registry
+  - name: "vocals_preset_ensemble"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "vocals"
+    models:
+      - name: "VocalBalancedPreset"
+        # Reference a preset key defined in ensemble_presets.json
+        ensemble_preset: "vocal_balanced"
+        output_names:
+          Vocals: "Vocals"
+          Instrumental: null
+          other: null
 
-  # # Example 2: Custom Ensemble by specifying a list of models, algorithm, and weights
-  # - name: "vocals_custom_ensemble"
-  #   type: "separate"
-  #   input_dir: "MIX"
-  #   output_dir: "vocals"
-  #   models:
-  #     - name: "MyVocalEnsemble"
-  #       # Provide multiple models in a list
-  #       model_file:
-  #         - "bs_roformer_vocals_resurrection_unwa.ckpt"
-  #         - "melband_roformer_big_beta6x.ckpt"
-  #       # Choose any of the supported Ensembler algorithms (avg_wave, avg_fft, max_fft, etc.)
-  #       ensemble_algorithm: "avg_fft"
-  #       # Optional weights matching the length of model_file
-  #       ensemble_weights: [1.0, 1.0]
-  #       output_names:
-  #         Vocals: "Vocals"
-  #         other: "Instrumental"
+  # Example 2: Custom Ensemble by specifying a list of models, algorithm, and weights
+  - name: "vocals_custom_ensemble"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "vocals"
+    models:
+      - name: "MyVocalEnsemble"
+        # Provide multiple models in a list
+        model_file:
+          - "bs_roformer_vocals_resurrection_unwa.ckpt"
+          - "melband_roformer_big_beta6x.ckpt"
+        # Choose any of the supported Ensembler algorithms (avg_wave, avg_fft, max_fft, etc.)
+        ensemble_algorithm: "avg_fft"
+        # Optional weights matching the length of model_file
+        ensemble_weights: [1.0, 1.0]
+        output_names:
+          Vocals: "Vocals"
+          Instrumental: null
+          other: null
 
-  # # Example 3: Instrumental Ensemble preset
-  # - name: "instrumental_preset_ensemble"
-  #   type: "separate"
-  #   input_dir: "MIX"
-  #   output_dir: "instrumental"
-  #   models:
-  #     - name: "InstrumentalCleanPreset"
-  #       ensemble_preset: "instrumental_clean"
-  #       output_names:
-  #         Instrumental: "Instrumental"
+  # Example 3: Instrumental Ensemble preset
+  - name: "instrumental_preset_ensemble"
+    type: "separate"
+    input_dir: "MIX"
+    output_dir: "instrumental"
+    models:
+      - name: "InstrumentalCleanPreset"
+        ensemble_preset: "instrumental_clean"
+        output_names:
+          Instrumental: "Instrumental"
 
   # Example 4: Post-separation Ensemble Stage combining previously separated "(Vocals)" stems
   - name: "post_separation_vocals_ensemble"

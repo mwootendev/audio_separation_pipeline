@@ -307,11 +307,22 @@ def rename_outputs(
             src_path = target_dir / src_path
 
         stem_type = src_path.stem
+        should_delete = False
         if output_names:
             for k, v in output_names.items():
                 if k and k.lower() in src_path.stem.lower():
-                    stem_type = v
+                    if v is None:
+                        should_delete = True
+                    else:
+                        stem_type = v
                     break
+
+        if should_delete:
+            print(f"[info] Removing filtered stem: '{src_path.name}'")
+            if src_path.exists():
+                src_path.unlink()
+            continue
+
         new_name = f"{input_stem}-{model_name} ({stem_type}){src_path.suffix}"
         dest = target_dir / new_name
         dest.parent.mkdir(parents=True, exist_ok=True)
