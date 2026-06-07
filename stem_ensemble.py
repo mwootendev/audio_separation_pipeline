@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#!/usr/bin/env python3
 from __future__ import annotations
 
 from scipy.signal import resample_poly
@@ -8,6 +9,8 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple, Optional
+import warnings
+import logging
 
 import numpy as np
 
@@ -15,6 +18,7 @@ import numpy as np
 #   pip install soundfile scipy
 import soundfile as sf
 from scipy.signal import stft, istft, butter, sosfilt
+from audio_separator.separator.ensembler import Ensembler
 
 
 @dataclass
@@ -201,88 +205,67 @@ def build_vocals_ensemble(
     force_mono: bool = False,
 ) -> Path:
     """
-    Weighted complex-STFT merge:
-      weight(time,freq,model) = (|X|^p) * softmax(score)
-      X_ens = sum(weight * X) / sum(weight)
+    [DEPRECATED] Weighted complex-STFT merge.
+    Delegates to Ensembler utility from python-audio-separator.
     """
+    warnings.warn(
+        "build_vocals_ensemble is deprecated and will be removed. "
+        "Use Ensembler from python-audio-separator instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if not vocal_paths:
         raise ValueError("No vocal paths provided.")
 
     # Choose top_k by score
-    vocal_paths = sorted(vocal_paths, key=lambda pth: scores.get(pth, -1e9), reverse=True)[:top_k]
+    sorted_paths = sorted(vocal_paths, key=lambda pth: scores.get(pth, -1e9), reverse=True)[:top_k]
 
     sigs: List[np.ndarray] = []
     srs: List[int] = []
-    for vp in vocal_paths:
+    for vp in sorted_paths:
         x, s = _read_wav_stereo(vp)
         sigs.append(x)
         srs.append(s)
 
-    # Require same SR; if not, pick the first SR and continue (better: resample later)
     sr_use = sr or srs[0]
-    if any(s != sr_use for s in srs):
-        raise RuntimeError(f"Sample-rate mismatch across candidates: {set(srs)}. Resample first or export consistently.")
+    # Resample if mismatch
+    for idx, (x, s) in enumerate(zip(sigs, srs)):
+        if s != sr_use:
+            sigs[idx] = _resample_to(x, s, sr_use)
 
-    # Normalize channels and length
+    # Normalize channels
     if force_mono:
         sigs = [_to_mono(x)[:, None] if x.ndim > 1 else x[:, None] for x in sigs]
         ch_target = 1
     else:
         ch_target = max(x.shape[1] for x in sigs)
         sigs = [_match_channels(x, ch_target) for x in sigs]
-    L = max(x.shape[0] for x in sigs)
-    sigs = [np.pad(x, ((0, L - x.shape[0]), (0, 0))) for x in sigs]
+
+    # Convert to (channels, length) for Ensembler
+    waveforms = [x.T for x in sigs]
 
     # Softmax scores -> per-model scalar weights
-    raw = np.array([scores.get(vp, 0.0) for vp in vocal_paths], dtype=np.float64)
+    raw = np.array([scores.get(vp, 0.0) for vp in sorted_paths], dtype=np.float64)
     raw = raw - np.max(raw)
     w_model = np.exp(raw)
     w_model = w_model / (np.sum(w_model) + 1e-12)
-    w_model = w_model.astype(np.float32)
+    w_model = w_model.tolist()
 
-    combine = combine.lower()
-    channels_out: List[np.ndarray] = []
-    for ch in range(ch_target):
-        specs = []
-        mags = []
-        for x in sigs:
-            f, t, Z = stft(
-                x[:, ch],
-                fs=sr_use,
-                nperseg=nperseg,
-                noverlap=noverlap,
-                window="hann",
-                padded=False,
-                boundary=None,
-            )
-            specs.append(Z.astype(np.complex64))
-            mags.append(np.abs(Z).astype(np.float32))
+    # Map combine values to Ensembler algorithms
+    combine_alg = combine.lower()
+    if combine_alg == "avg":
+        combine_alg = "avg_fft"
+    elif combine_alg == "max":
+        combine_alg = "max_fft"
+    elif combine_alg == "min":
+        combine_alg = "min_fft"
 
-        if combine == "max":
-            mags_stack = np.stack(mags, axis=0)
-            idx = np.argmax(mags_stack, axis=0)
-            Z_stack = np.stack(specs, axis=0)
-            Z_ens = np.take_along_axis(Z_stack, idx[None, ...], axis=0)[0]
-        elif combine == "min":
-            mags_stack = np.stack(mags, axis=0)
-            idx = np.argmin(mags_stack, axis=0)
-            Z_stack = np.stack(specs, axis=0)
-            Z_ens = np.take_along_axis(Z_stack, idx[None, ...], axis=0)[0]
-        else:  # "avg" weighted
-            num = np.zeros_like(specs[0], dtype=np.complex64)
-            den = np.zeros_like(mags[0], dtype=np.float32)
+    logger = logging.getLogger("audio_separator")
+    ensembler = Ensembler(logger, algorithm=combine_alg, weights=w_model)
+    ensembled_wav = ensembler.ensemble(waveforms)
 
-            for i, (Z, M) in enumerate(zip(specs, mags)):
-                W = (np.power(M, p) * w_model[i]).astype(np.float32)
-                num += (W * Z)
-                den += W
-
-            Z_ens = num / (den + 1e-12)
-
-        _, y_ch = istft(Z_ens, fs=sr_use, nperseg=nperseg, noverlap=noverlap, window="hann", input_onesided=True)
-        channels_out.append(y_ch.astype(np.float32))
-
-    y = np.stack(channels_out, axis=1)
+    # Convert back to (length, channels)
+    y = ensembled_wav.T
     y = _peak_normalize(y, peak=0.99)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -324,10 +307,15 @@ def build_instrumental_ensemble(
     force_mono: bool = False,
 ) -> Path:
     """
-    Build an instrumental ensemble that reduces vocal bleed:
-      - configurable combine: median (default), avg, max, min
-      - optional final subtraction of vocals to scrub leftovers
+    [DEPRECATED] Build an instrumental ensemble that reduces vocal bleed.
+    Delegates to Ensembler utility from python-audio-separator.
     """
+    warnings.warn(
+        "build_instrumental_ensemble is deprecated and will be removed. "
+        "Use Ensembler from python-audio-separator instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if not instrumental_paths:
         raise ValueError("No instrumental paths provided.")
 
@@ -356,19 +344,26 @@ def build_instrumental_ensemble(
     else:
         ch_target = max(x.shape[1] for x in sigs)
         sigs = [_match_channels(x, ch_target) for x in sigs]
-    L = max(x.shape[0] for x in sigs)
-    sigs = [np.pad(x, ((0, L - x.shape[0]), (0, 0))) for x in sigs]
 
-    stack = np.stack(sigs, axis=0)
-    combine = combine.lower()
-    if combine == "avg":
-        inst = np.mean(stack, axis=0).astype(np.float32)
-    elif combine == "max":
-        inst = np.max(stack, axis=0).astype(np.float32)
-    elif combine == "min":
-        inst = np.min(stack, axis=0).astype(np.float32)
-    else:  # median
-        inst = np.median(stack, axis=0).astype(np.float32)
+    # Convert to (channels, length) for Ensembler
+    waveforms = [x.T for x in sigs]
+
+    # Map combine values to Ensembler algorithms (time-domain)
+    combine_alg = combine.lower()
+    if combine_alg == "avg":
+        combine_alg = "avg_wave"
+    elif combine_alg == "median":
+        combine_alg = "median_wave"
+    elif combine_alg == "max":
+        combine_alg = "max_wave"
+    elif combine_alg == "min":
+        combine_alg = "min_wave"
+
+    logger = logging.getLogger("audio_separator")
+    ensembler = Ensembler(logger, algorithm=combine_alg)
+    ensembled_wav = ensembler.ensemble(waveforms)
+
+    inst = ensembled_wav.T
 
     if vocals_path:
         voc, sr_v = _read_wav_stereo(vocals_path)

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
 import shutil
@@ -11,7 +13,6 @@ import yaml
 import requests
 
 from audio_separator.separator import Separator
-from stem_ensemble import build_vocals_ensemble, build_instrumental_ensemble
 
 
 VOCAL_KEYWORDS = ["vocal", "vox", "sing", "voice"]
@@ -23,6 +24,69 @@ def load_config(path: Path) -> Dict[str, Any]:
     if not isinstance(cfg, dict):
         raise ValueError("Config root must be a mapping.")
     return cfg
+
+
+def load_ensemble_presets(model_dir: Path) -> dict:
+    local_path = model_dir / "ensemble_presets.json"
+    url = "https://raw.githubusercontent.com/nomadkaraoke/python-audio-separator/refs/heads/main/audio_separator/ensemble_presets.json"
+    
+    # Try fetching and caching the remote presets file
+    try:
+        print(f"Downloading latest ensemble presets from {url}...")
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            model_dir.mkdir(parents=True, exist_ok=True)
+            local_path.write_text(response.text, encoding="utf-8")
+            print("Successfully updated cached ensemble presets.")
+    except Exception as exc:
+        print(f"[warn] Failed to download ensemble presets from URL: {exc}. Using cached or library copy.")
+
+    # Try loading from local cached path
+    if local_path.exists():
+        try:
+            return json.loads(local_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"[error] Failed to parse local cached ensemble presets: {exc}")
+
+    # Fallback: try loading from python-audio-separator resources
+    try:
+        from importlib import resources
+        with resources.open_text("audio_separator", "ensemble_presets.json") as f:
+            return json.load(f)
+    except Exception as exc:
+        print(f"[warn] Could not load presets from package resources: {exc}")
+
+    # Ultimate fallback: return a basic offline dictionary of known presets
+    return {
+        "version": 1,
+        "presets": {
+            "vocal_balanced": {
+                "name": "Vocal Balanced",
+                "models": ["bs_roformer_vocals_resurrection_unwa.ckpt", "melband_roformer_big_beta6x.ckpt"],
+                "algorithm": "avg_fft"
+            },
+            "vocal_clean": {
+                "name": "Vocal Clean",
+                "models": ["bs_roformer_vocals_revive_v2_unwa.ckpt", "mel_band_roformer_kim_ft2_bleedless_unwa.ckpt"],
+                "algorithm": "min_fft"
+            },
+            "vocal_full": {
+                "name": "Vocal Full",
+                "models": ["bs_roformer_vocals_revive_v3e_unwa.ckpt", "mel_band_roformer_vocals_becruily.ckpt"],
+                "algorithm": "max_fft"
+            },
+            "instrumental_clean": {
+                "name": "Instrumental Clean",
+                "models": ["mel_band_roformer_instrumental_fv7z_gabox.ckpt", "bs_roformer_instrumental_resurrection_unwa.ckpt"],
+                "algorithm": "uvr_max_spec"
+            },
+            "instrumental_full": {
+                "name": "Instrumental Full",
+                "models": ["melband_roformer_inst_v1e_plus.ckpt", "mel_band_roformer_instrumental_becruily.ckpt"],
+                "algorithm": "uvr_max_spec"
+            }
+        }
+    }
 
 
 def resolve_path(base: Path, value: str | None) -> Path | None:
@@ -163,17 +227,31 @@ def _build_weight_curve(freqs: "np.ndarray", weights: list | None) -> "np.ndarra
 def config_separator(model_cfg: dict, global_cfg: dict, stage_cfg: dict, model_dir: Path, out_dir: Path) -> Separator:
     sep_kwargs: Dict[str, Any] = {}
     # Global defaults
-    for key in ["model_file_dir", "output_format", "sample_rate", "use_autocast"]:
+    for key in ["model_file_dir", "output_format", "sample_rate", "use_autocast", "ensemble_algorithm", "ensemble_weights", "ensemble_preset"]:
         if key in global_cfg and global_cfg[key] is not None:
             sep_kwargs[key] = global_cfg[key]
     # Stage overrides
-    for key in ["output_single_stem", "invert_using_spec", "mdx_params", "vr_params", "demucs_params", "mdxc_params"]:
+    for key in ["output_single_stem", "invert_using_spec", "mdx_params", "vr_params", "demucs_params", "mdxc_params", "ensemble_algorithm", "ensemble_weights", "ensemble_preset"]:
         if key in stage_cfg and stage_cfg[key] is not None:
             sep_kwargs[key] = stage_cfg[key]
     # Model overrides
-    for key in ["output_single_stem", "invert_using_spec", "mdx_params", "vr_params", "demucs_params", "mdxc_params"]:
+    for key in ["output_single_stem", "invert_using_spec", "mdx_params", "vr_params", "demucs_params", "mdxc_params", "ensemble_algorithm", "ensemble_weights", "ensemble_preset"]:
         if key in model_cfg and model_cfg[key] is not None:
             sep_kwargs[key] = model_cfg[key]
+
+    # Resolve ensemble_preset using our loaded presets dictionary
+    presets_dict = load_ensemble_presets(model_dir)
+    preset_name = sep_kwargs.get("ensemble_preset")
+    if preset_name and presets_dict and "presets" in presets_dict:
+        preset_info = presets_dict["presets"].get(preset_name)
+        if preset_info:
+            print(f"Resolving ensemble preset '{preset_name}' from fetched presets...")
+            if "model_file" not in model_cfg and "models" in preset_info:
+                model_cfg["model_file"] = preset_info["models"]
+            if sep_kwargs.get("ensemble_algorithm") is None and "algorithm" in preset_info:
+                sep_kwargs["ensemble_algorithm"] = preset_info["algorithm"]
+            if sep_kwargs.get("ensemble_weights") is None and preset_info.get("weights") is not None:
+                sep_kwargs["ensemble_weights"] = preset_info["weights"]
 
     # Clean nested param dicts to strip None values
     for nested in ["mdx_params", "vr_params", "demucs_params", "mdxc_params"]:
@@ -184,7 +262,14 @@ def config_separator(model_cfg: dict, global_cfg: dict, stage_cfg: dict, model_d
     sep_kwargs["output_dir"] = str(out_dir)
 
     sep = Separator(**sep_kwargs)
-    sep.load_model(model_filename=model_cfg["model_file"])
+    
+    # Check if we have models to load
+    model_file = model_cfg.get("model_file")
+    if model_file:
+        sep.load_model(model_filename=model_file)
+    else:
+        sep.load_model()
+        
     return sep
 
 
@@ -272,7 +357,15 @@ def run_stage(stage_cfg: dict, global_cfg: dict, mix_path: Path, base_output: Pa
         work_root = out_dir / "_work"
 
         for model_cfg in stage_cfg.get("models", []):
-            friendly = model_cfg.get("name") or Path(model_cfg["model_file"]).stem
+            if "ensemble_preset" in model_cfg:
+                friendly = model_cfg.get("name") or f"preset_{model_cfg['ensemble_preset']}"
+            elif isinstance(model_cfg.get("model_file"), list):
+                friendly = model_cfg.get("name") or f"ensemble_{'_'.join(Path(m).stem for m in model_cfg['model_file'])}"
+            elif "model_file" in model_cfg:
+                friendly = model_cfg.get("name") or Path(model_cfg["model_file"]).stem
+            else:
+                friendly = model_cfg.get("name") or "unknown_model"
+
             output_names = model_cfg.get("output_names") or stage_cfg.get("output_names")
             model_out_dir = ensure_dir(work_root / friendly)
             sep = config_separator(model_cfg, global_cfg, stage_cfg, model_dir, model_out_dir)
@@ -481,6 +574,11 @@ def run_mvsep_stage(stage_cfg: dict, global_cfg: dict, out_dir: Path, inputs: Li
 
 
 def run_ensemble_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> List[Path]:
+    import numpy as np
+    import soundfile as sf
+    import logging
+    from audio_separator.separator.ensembler import Ensembler
+
     mode = stage_cfg.get("mode", "vocals").lower()
     top_k = stage_cfg.get("top_k")
     combine_raw = stage_cfg.get("combine_type") or stage_cfg.get("combine")
@@ -495,49 +593,71 @@ def run_ensemble_stage(stage_cfg: dict, out_dir: Path, inputs: List[Path]) -> Li
         combine_values = [None]
     multi_combine = len(combine_values) > 1
     outputs: List[Path] = []
+    
     if mode == "vocals":
         candidates = [p for p in inputs if any(k in p.name.lower() for k in VOCAL_KEYWORDS)]
-        scores = {p: 0.0 for p in candidates}
-        force_mono = bool(stage_cfg.get("force_mono"))
-        for combine in combine_values:
-            if multi_combine and combine is not None:
-                prefix = f"{combine.capitalize()} "
-                out_path = out_dir / f"{prefix}{output_name}"
-            else:
-                out_path = out_dir / output_name
-            build_vocals_ensemble(
-                candidates,
-                scores,
-                out_path,
-                top_k=min(top_k or len(candidates), len(candidates)),
-                combine=(combine or "avg"),
-                force_mono=force_mono,
-            )
-            print(f"[{stage_cfg.get('name','?')}] Vocals ensemble -> {out_path}")
-            outputs.append(out_path)
-        return outputs
-    if mode == "instrumental":
+    elif mode == "instrumental" or mode in INSTRUMENTAL_KEYWORDS:
         candidates = [p for p in inputs if any(k in p.name.lower() for k in INSTRUMENTAL_KEYWORDS)]
-        force_mono = bool(stage_cfg.get("force_mono"))
-        for combine in combine_values:
-            if multi_combine and combine is not None:
-                prefix = f"{combine.capitalize()} "
-                out_path = out_dir / f"{prefix}{output_name}"
-            else:
-                out_path = out_dir / output_name
-            combine_use = (combine or "median").lower()
-            build_instrumental_ensemble(
-                candidates,
-                out_path,
-                vocals_path=None,
-                combine=combine_use,
-                force_mono=force_mono,
-            )
-            print(f"[{stage_cfg.get('name','?')}] Instrumental ensemble -> {out_path}")
-            outputs.append(out_path)
-        return outputs
-    print(f"[{stage_cfg.get('name','?')}] Unknown ensemble mode '{mode}', skipping.")
-    return []
+    else:
+        candidates = list(inputs)
+
+    if top_k is not None:
+        candidates = candidates[:top_k]
+
+    if not candidates:
+        print(f"[{stage_cfg.get('name','?')}] No candidates found for ensemble mode '{mode}', skipping.")
+        return []
+
+    force_mono = bool(stage_cfg.get("force_mono"))
+    for combine in combine_values:
+        if multi_combine and combine is not None:
+            prefix = f"{combine.capitalize()} "
+            out_path = out_dir / f"{prefix}{output_name}"
+        else:
+            out_path = out_dir / output_name
+
+        combine_alg = (combine or "avg").lower()
+        
+        # Map simple combine options based on mode:
+        # vocals default to STFT-based ensembling, instrumental to time-domain.
+        if combine_alg == "avg":
+            combine_alg = "avg_fft" if mode == "vocals" else "avg_wave"
+        elif combine_alg == "median":
+            combine_alg = "median_fft" if mode == "vocals" else "median_wave"
+        elif combine_alg == "min":
+            combine_alg = "min_fft" if mode == "vocals" else "min_wave"
+        elif combine_alg == "max":
+            combine_alg = "max_fft" if mode == "vocals" else "max_wave"
+
+        waveforms = []
+        sr_use = None
+        for p in candidates:
+            wav, sr = sf.read(str(p), always_2d=True)
+            if sr_use is None:
+                sr_use = sr
+            elif sr != sr_use:
+                wav = _resample_audio(wav, sr, sr_use)
+            if force_mono:
+                wav = np.mean(wav, axis=1, keepdims=True)
+            waveforms.append(wav.T)
+
+        logger = logging.getLogger("audio_separator")
+        ensembler = Ensembler(logger, algorithm=combine_alg)
+        ensembled_wav = ensembler.ensemble(waveforms)
+
+        # Convert back to (length, channels)
+        y = ensembled_wav.T
+
+        # Peak normalize
+        peak = np.max(np.abs(y)) + 1e-12
+        y = y * (0.99 / peak)
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(str(out_path), y, sr_use)
+        print(f"[{stage_cfg.get('name','?')}] {mode.capitalize()} ensemble ({combine_alg}) -> {out_path}")
+        outputs.append(out_path)
+
+    return outputs
 
 
 def _normalize_plugins_cfg(plugins_cfg: list | None) -> list[dict]:
