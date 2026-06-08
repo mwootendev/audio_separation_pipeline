@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audio-separation-pipeline"
+version = "0.1.0"
+description = "A robust, automated audio source separation pipeline using python-audio-separator and ensembling techniques."
+readme = "CONTEXT.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+    "torch",
+    "torchaudio",
+    "torchvision",
+    "librosa",
+    "soundfile",
+    "scipy",
+    "numpy",
+    "pedalboard",
+    "MIDIUtil",
+    "PyYAML",
+    "requests",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "onnxruntime-gpu",
+    "audio-separator[gpu]",
+]
+cpu = [
+    "onnxruntime",
+    "audio-separator[cpu]",
+]
+
+[project.scripts]
+audio-separate-pipeline = "stem_pipeline:main"
+audio-separate-ensemble = "ensemble:main"
+audio-separate-scan = "stem_quality_scanner:main"
+
+[tool.setuptools]
+py-modules = [
+    "stem_pipeline",
+    "stem_ensemble",
+    "ensemble",
+    "stem_quality_scanner",
+    "csv_chords_to_midi_strums"
+]

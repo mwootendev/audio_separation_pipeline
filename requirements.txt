@@ -1,0 +1,25 @@
+# PyTorch with CUDA 12.1 Support
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch
+torchaudio
+torchvision
+
+# ONNX Runtime with GPU Support
+onnxruntime-gpu
+
+# Audio Separator with GPU Extras
+audio-separator[gpu]
+
+# Audio Processing & Feature Extraction
+librosa
+soundfile
+scipy
+numpy
+pedalboard
+
+# MIDI Utilities
+MIDIUtil
+
+# Project Infrastructure & Networking
+PyYAML
+requests
